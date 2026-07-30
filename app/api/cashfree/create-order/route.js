@@ -3,6 +3,7 @@ import { supabaseServer } from "../../../../lib/supabaseServer";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 import { createOrder, cashfreeConfigured } from "../../../../lib/cashfree";
 import { isValidGstin, isValidPincode, normalizeGstin, stateFromGstin, taxTypeFor } from "../../../../lib/gst";
+import { normalizeCoupon, couponError, applyCoupon } from "../../../../lib/coupon";
 
 export const dynamic = "force-dynamic";
 
@@ -35,6 +36,18 @@ export async function POST(request) {
   }
   if (amount <= 0) return NextResponse.json({ error: "Invalid amount" }, { status: 400 });
 
+  // ---- Coupon (re-validated & applied server-side; never trust the client) ----
+  let couponFields = { coupon_code: null, discount: 0, original_amount: amount };
+  const couponCode = normalizeCoupon(body.coupon);
+  if (couponCode) {
+    const { data: coupon } = await admin.from("qs_coupons").select("*").eq("code", couponCode).maybeSingle();
+    const cErr = couponError(coupon);
+    if (cErr) return NextResponse.json({ error: cErr }, { status: 400 });
+    const { discount, final } = applyCoupon(coupon, amount);
+    couponFields = { coupon_code: couponCode, discount, original_amount: amount };
+    amount = final;
+  }
+
   // ---- Mandatory GST declaration (before a payment link is issued) ----
   const gst = body.gst || {};
   const gstApplicable = gst.applicable === true || gst.applicable === "yes";
@@ -59,7 +72,7 @@ export async function POST(request) {
   }
 
   const orderId = "qrs" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-  await admin.from("qs_orders").insert({ id: orderId, user_id: user.id, kind, plan, qty, amount, status: "pending", ...gstFields });
+  await admin.from("qs_orders").insert({ id: orderId, user_id: user.id, kind, plan, qty, amount, status: "pending", ...gstFields, ...couponFields });
   if (phone && phone.length >= 10) { await admin.from("qr_profiles").update({ phone }).eq("id", user.id); }
 
   const origin = new URL(request.url).origin;

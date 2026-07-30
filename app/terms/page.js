@@ -1,6 +1,6 @@
 import LegalLayout, { BIZ, H2, P } from "../../components/LegalLayout";
 
-export const metadata = { title: "Terms & Conditions — India QRCode" };
+export const metadata = { title: "Terms & Conditions", description: "The terms governing your use of India QRCode.", alternates: { canonical: "/terms" } };
 
 export default function Terms() {
   return (

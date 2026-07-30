@@ -38,5 +38,6 @@ export async function POST(request) {
   if (error && !/not.*found/i.test(error.message || "")) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
+  await admin.from("qs_admin_audit").insert({ admin_id: user.id, action: "user_delete", target: targetId, detail: {} });
   return NextResponse.json({ ok: true });
 }

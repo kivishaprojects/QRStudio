@@ -1,7 +1,7 @@
 import Link from "next/link";
 import LegalLayout, { H2, P } from "../../components/LegalLayout";
 
-export const metadata = { title: "Pricing & Products — India QRCode" };
+export const metadata = { title: "Pricing & Products", description: "India QRCode plans and per-item pricing in INR, inclusive of GST.", alternates: { canonical: "/pricing" } };
 
 const PLANS = [
   { name: "Free", price: "₹0", period: "", qr: "1 QR credit", addon: "₹499 / credit / year", best: false, features: ["1 free QR credit", "Dynamic QR + scan tracking", "PNG & SVG download"] },

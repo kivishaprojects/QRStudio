@@ -1,6 +1,6 @@
 import LegalLayout, { BIZ, H2, P } from "../../components/LegalLayout";
 
-export const metadata = { title: "Refunds & Cancellations — India QRCode" };
+export const metadata = { title: "Refunds & Cancellations", description: "India QRCode refund and cancellation policy.", alternates: { canonical: "/refunds" } };
 
 export default function Refunds() {
   return (

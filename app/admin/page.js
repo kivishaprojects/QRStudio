@@ -10,7 +10,7 @@ export default function Admin() {
   const router = useRouter();
   const supabase = supabaseBrowser();
   const [me, setMe] = useState(null);
-  const [data, setData] = useState({ users: [], codes: [], txns: [], orders: [], settings: null, tickets: [] });
+  const [data, setData] = useState({ users: [], codes: [], txns: [], orders: [], settings: null, tickets: [], coupons: [], audit: [] });
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState("overview");
   const [msg, setMsg] = useState("");
@@ -30,15 +30,17 @@ export default function Admin() {
     const { data: prof } = await supabase.from("qr_profiles").select("*").eq("id", user.id).single();
     setMe(prof);
     if (prof?.role === "admin") {
-      const [{ data: users }, { data: codes }, { data: txns }, { data: orders }, { data: settings }, { data: tickets }] = await Promise.all([
+      const [{ data: users }, { data: codes }, { data: txns }, { data: orders }, { data: settings }, { data: tickets }, { data: coupons }, { data: audit }] = await Promise.all([
         supabase.from("qr_profiles").select("*").order("created_at", { ascending: false }),
         supabase.from("qs_codes").select("*").order("created_at", { ascending: false }),
         supabase.from("qr_transactions").select("*").order("created_at", { ascending: false }),
         supabase.from("qs_orders").select("*").order("created_at", { ascending: false }),
         supabase.from("qs_settings").select("*").eq("id", 1).single(),
         supabase.from("qs_tickets").select("*").order("updated_at", { ascending: false }),
+        supabase.from("qs_coupons").select("*").order("created_at", { ascending: false }),
+        supabase.from("qs_admin_audit").select("*").order("created_at", { ascending: false }).limit(200),
       ]);
-      setData({ users: users || [], codes: codes || [], txns: txns || [], orders: orders || [], settings: settings || null, tickets: tickets || [] });
+      setData({ users: users || [], codes: codes || [], txns: txns || [], orders: orders || [], settings: settings || null, tickets: tickets || [], coupons: coupons || [], audit: audit || [] });
       if (settings) setSform({ gst_rate: String(settings.gst_rate ?? 18), gstin: settings.gstin || "", biz_name: settings.biz_name || "", biz_address: settings.biz_address || "", hsn: settings.hsn || "", logo_url: settings.logo_url || "" });
       setAform({ phone: prof.phone || "" });
     }
@@ -143,7 +145,7 @@ export default function Admin() {
     );
   }
 
-  const { users, codes, txns, orders, tickets } = data;
+  const { users, codes, txns, orders, tickets, coupons, audit } = data;
   const paying = users.filter((u) => u.plan !== "free").length;
   const totalScans = codes.reduce((a, c) => a + (c.scans || 0), 0);
   const revenue = txns.reduce((a, t) => a + (t.amount || 0), 0);
@@ -229,7 +231,7 @@ export default function Admin() {
     <div style={{ display: "grid", gridTemplateColumns: "230px 1fr", minHeight: "100vh" }}>
       <aside style={{ background: "var(--bg2)", borderRight: "1px solid var(--line)", padding: "20px 15px", position: "sticky", top: 0, height: "100vh" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, fontWeight: 800, fontSize: 17, padding: "6px 8px 18px" }}><span className="logo">▦</span> Admin</div>
-        {[["overview", "▨ Overview"], ["users", "👥 Users"], ["revenue", "₹ Revenue"], ["bills", "🧾 Bills Generated"], ["codes", "▤ QR Codes"], ["support", "🛟 Support"], ["settings", "⚙ Settings"]].map(([id, l]) => {
+        {[["overview", "▨ Overview"], ["users", "👥 Users"], ["revenue", "₹ Revenue"], ["bills", "🧾 Bills Generated"], ["codes", "▤ QR Codes"], ["coupons", "🎟 Coupons"], ["support", "🛟 Support"], ["audit", "📜 Audit Log"], ["settings", "⚙ Settings"]].map(([id, l]) => {
           const openCount = id === "support" ? (data.tickets || []).filter((t) => t.status === "open" || t.status === "in_progress").length : 0;
           return (
           <div key={id} onClick={() => setTab(id)} style={{ padding: "11px 13px", borderRadius: 11, marginBottom: 3, fontSize: 14, cursor: "pointer", color: tab === id ? "#fff" : "var(--soft)", background: tab === id ? "linear-gradient(135deg,var(--brand),var(--brand2))" : "transparent", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -387,6 +389,30 @@ export default function Admin() {
           </>
         )}
 
+        {tab === "coupons" && (
+          <AdminCoupons supabase={supabase} coupons={coupons || []} onChange={load} flash={flash} />
+        )}
+
+        {tab === "audit" && (
+          <div className="card">
+            <h3 style={{ fontSize: 16, marginBottom: 14 }}>Admin activity ({(audit || []).length})</h3>
+            {(!audit || audit.length === 0) ? <p style={{ color: "var(--soft)" }}>No admin actions recorded yet.</p> : (
+              <div style={{ overflowX: "auto" }}>
+                <table><thead><tr><th>When</th><th>Admin</th><th>Action</th><th>Target</th></tr></thead>
+                  <tbody>{audit.map((a) => (
+                    <tr key={a.id}>
+                      <td style={{ color: "var(--soft)", fontSize: 12 }}>{new Date(a.created_at).toLocaleString()}</td>
+                      <td style={{ fontSize: 12.5 }}>{emailById[a.admin_id] || "—"}</td>
+                      <td><span className="pill starter">{a.action.replace(/_/g, " ")}</span></td>
+                      <td style={{ fontSize: 12.5 }}>{a.target || "—"}</td>
+                    </tr>
+                  ))}</tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
         {tab === "support" && (
           <AdminSupport supabase={supabase} tickets={tickets || []} emailById={emailById} nameById={nameById} onChange={load} flash={flash} />
         )}
@@ -508,6 +534,77 @@ const TICKET_STATUS = {
 function TStatus({ s }) {
   const m = TICKET_STATUS[s] || { label: s, cls: "starter" };
   return <span className={"pill " + m.cls}>{m.label}</span>;
+}
+
+function AdminCoupons({ supabase, coupons, onChange, flash }) {
+  const [f, setF] = useState({ code: "", kind: "percent", value: "", max: "", expires: "", active: true });
+  const [busy, setBusy] = useState(false);
+  const inp = { width: "100%", background: "#fff", border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px", color: "var(--txt)", fontFamily: "inherit", fontSize: 14 };
+
+  async function save() {
+    if (!f.code.trim() || !f.value) { flash("Enter a code and value"); return; }
+    setBusy(true);
+    const { error } = await supabase.rpc("qr_save_coupon", {
+      p_code: f.code.trim().toUpperCase(), p_kind: f.kind, p_value: Number(f.value),
+      p_max: f.max ? parseInt(f.max, 10) : null, p_expires: f.expires ? new Date(f.expires).toISOString() : null, p_active: f.active,
+    });
+    setBusy(false);
+    if (error) flash("Error: " + error.message);
+    else { flash("✅ Coupon saved"); setF({ code: "", kind: "percent", value: "", max: "", expires: "", active: true }); onChange(); }
+  }
+  async function toggle(c) {
+    const { error } = await supabase.rpc("qr_save_coupon", { p_code: c.code, p_kind: c.kind, p_value: c.value, p_max: c.max_redemptions, p_expires: c.expires_at, p_active: !c.active });
+    if (error) flash("Error: " + error.message); else onChange();
+  }
+  async function del(c) {
+    if (!window.confirm("Delete coupon " + c.code + "?")) return;
+    const { error } = await supabase.rpc("qr_delete_coupon", { p_code: c.code });
+    if (error) flash("Error: " + error.message); else { flash("Coupon deleted"); onChange(); }
+  }
+
+  return (
+    <div style={{ display: "grid", gap: 18, maxWidth: 820 }}>
+      <div className="card" style={{ maxWidth: 560 }}>
+        <h3 style={{ fontSize: 16, marginBottom: 14 }}>Create / update coupon</h3>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <div className="field"><label>Code</label><input value={f.code} onChange={(e) => setF({ ...f, code: e.target.value.toUpperCase() })} placeholder="LAUNCH20" style={{ ...inp, textTransform: "uppercase" }} /></div>
+          <div className="field"><label>Type</label><select value={f.kind} onChange={(e) => setF({ ...f, kind: e.target.value })} style={inp}><option value="percent">Percent (%)</option><option value="flat">Flat (₹)</option></select></div>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <div className="field"><label>{f.kind === "percent" ? "Discount %" : "Discount ₹"}</label><input type="number" value={f.value} onChange={(e) => setF({ ...f, value: e.target.value })} placeholder={f.kind === "percent" ? "20" : "100"} style={inp} /></div>
+          <div className="field"><label>Max redemptions (optional)</label><input type="number" value={f.max} onChange={(e) => setF({ ...f, max: e.target.value })} placeholder="Unlimited" style={inp} /></div>
+        </div>
+        <div className="field"><label>Expires (optional)</label><input type="date" value={f.expires} onChange={(e) => setF({ ...f, expires: e.target.value })} style={inp} /></div>
+        <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13.5, marginBottom: 14 }}><input type="checkbox" checked={f.active} onChange={(e) => setF({ ...f, active: e.target.checked })} /> Active</label>
+        <button className="btn btn-primary" onClick={save} disabled={busy}>{busy ? "Saving…" : "Save coupon"}</button>
+      </div>
+
+      <div className="card">
+        <h3 style={{ fontSize: 16, marginBottom: 14 }}>Coupons ({coupons.length})</h3>
+        {coupons.length === 0 ? <p style={{ color: "var(--soft)" }}>No coupons yet.</p> : (
+          <div style={{ overflowX: "auto" }}>
+            <table><thead><tr><th>Code</th><th>Discount</th><th>Used</th><th>Expires</th><th>Status</th><th></th></tr></thead>
+              <tbody>{coupons.map((c) => (
+                <tr key={c.code}>
+                  <td><b>{c.code}</b></td>
+                  <td>{c.kind === "percent" ? c.value + "%" : "₹" + c.value}</td>
+                  <td>{c.redeemed}{c.max_redemptions != null ? " / " + c.max_redemptions : ""}</td>
+                  <td style={{ color: "var(--soft)", fontSize: 12.5 }}>{c.expires_at ? new Date(c.expires_at).toLocaleDateString() : "—"}</td>
+                  <td>{c.active ? <span className="pill pro">active</span> : <span className="pill free">off</span>}</td>
+                  <td>
+                    <div style={{ display: "flex", gap: 5 }}>
+                      <button className="btn btn-ghost btn-sm" onClick={() => toggle(c)}>{c.active ? "Disable" : "Enable"}</button>
+                      <button className="btn btn-ghost btn-sm" style={{ color: "#c0392b" }} onClick={() => del(c)}>Delete</button>
+                    </div>
+                  </td>
+                </tr>
+              ))}</tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function AdminSupport({ supabase, tickets, emailById, nameById, onChange, flash }) {

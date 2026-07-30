@@ -183,6 +183,7 @@ function openInvoice(o, settings, profile) {
     taxRows +
     '<div class="tot"><span>Total (incl. GST)</span><span>₹' + gross.toLocaleString() + '</span></div>' +
     '</div>' +
+    (o.coupon_code ? '<div class="tag" style="margin-top:14px">Coupon <b>' + o.coupon_code + '</b> applied — ₹' + (Number(o.discount) || 0).toLocaleString() + ' off' + (o.original_amount ? ' (list price ₹' + Number(o.original_amount).toLocaleString() + ')' : '') + '.</div>' : '') +
     '<div class="tag">Order ID: ' + o.id + ' · Paid via Cashfree.<br/>Prices are inclusive of GST @ ' + RATE + '%. This is a system-generated invoice.</div>' +
     '<scr' + 'ipt>window.onload=function(){window.print()}</scr' + 'ipt></body></html>'
   );
@@ -927,6 +928,10 @@ function Billing({ supabase, profile, plans, txns, orders, settings, onChange, f
   const [gstPin, setGstPin] = useState("");
   const [gstLegal, setGstLegal] = useState("");
   const [gstFetching, setGstFetching] = useState(false);
+  const [coupon, setCoupon] = useState("");
+  const [couponInfo, setCouponInfo] = useState(null);
+  const [couponBusy, setCouponBusy] = useState(false);
+  useEffect(() => { setCoupon(""); setCouponInfo(null); }, [pending]);
   const rate = plans.find((p) => p.id === profile?.plan)?.addon_rate || 100;
   useEffect(() => { if (profile && profile.phone) setPhone(profile.phone); }, [profile]);
   // Pre-fill the GST step from the customer's saved billing profile.
@@ -998,6 +1003,17 @@ function Billing({ supabase, profile, plans, txns, orders, settings, onChange, f
   function buyAddons() {
     if (qty >= 1) setPending({ kind: "addon", qty: Number(qty), amount: rate * Number(qty), label: qty + " addon credits @ ₹" + rate });
   }
+  async function applyCouponBtn() {
+    if (!coupon.trim()) return;
+    setCouponBusy(true);
+    try {
+      const res = await fetch("/api/coupon/validate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ coupon, amount: pending.amount }) });
+      const j = await res.json();
+      if (!j.valid) { setCouponInfo(null); flash(j.error || "Invalid coupon"); }
+      else { setCouponInfo(j); flash("✅ " + j.label + " applied"); }
+    } catch (e) { flash("Error: " + e.message); }
+    setCouponBusy(false);
+  }
   async function fetchGst() {
     if (!isValidGstin(gstin)) { flash("Enter a valid 15-character GSTIN first"); return; }
     setGstFetching(true);
@@ -1028,7 +1044,7 @@ function Billing({ supabase, profile, plans, txns, orders, settings, onChange, f
     const gst = gstOn === "yes"
       ? { applicable: "yes", gstin: gstin.toUpperCase().trim(), city: gstCity.trim(), pincode: gstPin.trim(), name: gstLegal || "" }
       : { applicable: "no" };
-    startCheckout({ kind: pending.kind, planId: pending.planId, qty: pending.qty, phone: digits, gst });
+    startCheckout({ kind: pending.kind, planId: pending.planId, qty: pending.qty, phone: digits, gst, coupon: couponInfo?.valid ? coupon.trim() : undefined });
   }
   function retry(o) {
     const label = (o.kind === "plan" ? (o.plan || "Plan") + " package" : (o.qty || "") + " addon credits") + " (retry)";
@@ -1101,9 +1117,25 @@ function Billing({ supabase, profile, plans, txns, orders, settings, onChange, f
           <div onClick={(e) => e.stopPropagation()} className="card" style={{ width: "100%", maxWidth: 400 }}>
             <h3 style={{ fontSize: 18, marginBottom: 4 }}>Checkout</h3>
             <p style={{ color: "var(--soft)", fontSize: 13.5, marginBottom: 14 }}>{pending.label}</p>
-            <div style={{ background: "var(--card2)", border: "1px solid var(--line)", borderRadius: 10, padding: "12px 14px", marginBottom: 14, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <span style={{ color: "var(--soft)", fontSize: 13 }}>Amount payable</span>
-              <b style={{ fontFamily: "'Plus Jakarta Sans'", fontSize: 22, color: "var(--gold)" }}>₹{pending.amount.toLocaleString()}</b>
+            <div style={{ background: "var(--card2)", border: "1px solid var(--line)", borderRadius: 10, padding: "12px 14px", marginBottom: 14 }}>
+              {couponInfo?.valid && (
+                <>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, color: "var(--soft)" }}><span>Subtotal</span><span>₹{pending.amount.toLocaleString()}</span></div>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, color: "var(--accent)", marginTop: 3 }}><span>Discount ({couponInfo.label})</span><span>− ₹{couponInfo.discount.toLocaleString()}</span></div>
+                  <div style={{ height: 1, background: "var(--line)", margin: "8px 0" }} />
+                </>
+              )}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ color: "var(--soft)", fontSize: 13 }}>Amount payable</span>
+                <b style={{ fontFamily: "'Plus Jakarta Sans'", fontSize: 22, color: "var(--gold)" }}>₹{(couponInfo?.valid ? couponInfo.final : pending.amount).toLocaleString()}</b>
+              </div>
+            </div>
+            <div className="field">
+              <label>Coupon code</label>
+              <div style={{ display: "flex", gap: 8 }}>
+                <input value={coupon} onChange={(e) => { setCoupon(e.target.value.toUpperCase()); setCouponInfo(null); }} placeholder="Have a code?" style={{ textTransform: "uppercase", flex: 1 }} />
+                <button type="button" className="btn btn-ghost" style={{ whiteSpace: "nowrap" }} onClick={applyCouponBtn} disabled={couponBusy || !coupon.trim()}>{couponBusy ? "…" : "Apply"}</button>
+              </div>
             </div>
             <div className="field">
               <label>Phone number (for payment &amp; receipt)</label>
@@ -1164,7 +1196,7 @@ function Billing({ supabase, profile, plans, txns, orders, settings, onChange, f
 
             <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
               <button className="btn btn-ghost" style={{ flex: 1, justifyContent: "center" }} onClick={() => setPending(null)} disabled={busy}>Cancel</button>
-              <button className="btn btn-primary" style={{ flex: 1, justifyContent: "center" }} onClick={confirmPay} disabled={busy || !gstReady} title={!gstReady ? "Complete the GST details to continue" : ""}>{busy ? "Starting…" : "Pay ₹" + pending.amount.toLocaleString()}</button>
+              <button className="btn btn-primary" style={{ flex: 1, justifyContent: "center" }} onClick={confirmPay} disabled={busy || !gstReady} title={!gstReady ? "Complete the GST details to continue" : ""}>{busy ? "Starting…" : "Pay ₹" + (couponInfo?.valid ? couponInfo.final : pending.amount).toLocaleString()}</button>
             </div>
             <p style={{ fontSize: 11, color: "var(--soft)", marginTop: 12, textAlign: "center" }}>Secured by Cashfree · UPI, cards, netbanking</p>
           </div>

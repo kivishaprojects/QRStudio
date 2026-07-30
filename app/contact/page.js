@@ -1,6 +1,6 @@
 import LegalLayout, { BIZ, H2, P } from "../../components/LegalLayout";
 
-export const metadata = { title: "Contact Us — India QRCode" };
+export const metadata = { title: "Contact Us", description: "Get in touch with the India QRCode team — support, billing and grievance contacts.", alternates: { canonical: "/contact" } };
 
 export default function Contact() {
   const row = { display: "flex", gap: 10, padding: "12px 0", borderBottom: "1px solid var(--line)", fontSize: 14.5 };

@@ -23,7 +23,8 @@ export default function Home() {
           <div style={{ display: "flex", alignItems: "center", gap: 11, fontWeight: 800, fontSize: 19 }}>
             <span className="logo">▦</span> India QRCode
           </div>
-          <div style={{ display: "flex", gap: 12 }}>
+          <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+            <Link href="/scan" style={{ fontSize: 14, color: "var(--soft)" }}>Scan</Link>
             <Link className="btn btn-ghost" href="/login">Log in</Link>
             <Link className="btn btn-primary" href="/login?mode=signup">Start free →</Link>
           </div>
