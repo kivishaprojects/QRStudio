@@ -17,12 +17,19 @@ function qrValueFor(code) {
   return (code && code.content) || " ";
 }
 
+function vcalTime(s) { return (s || "").replace(/[-:]/g, "").replace("T", "T") + ((s || "").length === 16 ? "00" : ""); }
 const TYPES = [
-  { id: "url", icon: "🔗", name: "URL", fields: [{ k: "url", label: "URL", ph: "https://site.com", val: "https://www.indiaqrcode.com" }], build: (v) => v.url || "" },
-  { id: "text", icon: "📝", name: "Text", fields: [{ k: "text", label: "Text", ph: "Any text", ta: true }], build: (v) => v.text || "" },
-  { id: "wifi", icon: "📶", name: "WiFi", fields: [{ k: "ssid", label: "Network", ph: "MyWiFi" }, { k: "pass", label: "Password", ph: "password" }], build: (v) => `WIFI:T:WPA;S:${v.ssid || ""};P:${v.pass || ""};;` },
-  { id: "upi", icon: "💳", name: "UPI", fields: [{ k: "vpa", label: "UPI ID", ph: "name@okbank" }, { k: "pn", label: "Payee", ph: "Vishal" }, { k: "am", label: "Amount", ph: "500" }], build: (v) => `upi://pay?pa=${v.vpa || ""}&pn=${encodeURIComponent(v.pn || "")}${v.am ? "&am=" + v.am : ""}&cu=INR` },
-  { id: "vcard", icon: "👤", name: "Contact", fields: [{ k: "fn", label: "Name", ph: "Vishal H Raval" }, { k: "tel", label: "Phone", ph: "+91..." }, { k: "email", label: "Email", ph: "a@b.com" }], build: (v) => `BEGIN:VCARD\nVERSION:3.0\nFN:${v.fn || ""}\nTEL:${v.tel || ""}\nEMAIL:${v.email || ""}\nEND:VCARD` },
+  { id: "url", icon: "🔗", name: "URL", dyn: true, fields: [{ k: "url", label: "URL", ph: "https://site.com", val: "https://www.indiaqrcode.com" }], build: (v) => v.url || "" },
+  { id: "text", icon: "📝", name: "Text", dyn: true, fields: [{ k: "text", label: "Text", ph: "Any text", ta: true }], build: (v) => v.text || "" },
+  { id: "email", icon: "✉️", name: "Email", dyn: true, fields: [{ k: "to", label: "To", ph: "a@b.com" }, { k: "subject", label: "Subject", ph: "Subject" }, { k: "body", label: "Message", ph: "Message", ta: true }], build: (v) => `mailto:${v.to || ""}?subject=${encodeURIComponent(v.subject || "")}&body=${encodeURIComponent(v.body || "")}` },
+  { id: "sms", icon: "💬", name: "SMS", dyn: true, fields: [{ k: "phone", label: "Phone", ph: "+91..." }, { k: "msg", label: "Message", ph: "Message", ta: true }], build: (v) => `SMSTO:${v.phone || ""}:${v.msg || ""}` },
+  { id: "phone", icon: "📞", name: "Phone", dyn: true, fields: [{ k: "phone", label: "Phone number", ph: "+91..." }], build: (v) => `tel:${v.phone || ""}` },
+  { id: "whatsapp", icon: "🟢", name: "WhatsApp", dyn: true, fields: [{ k: "phone", label: "Phone (with country code)", ph: "9198xxxxxxxx" }, { k: "msg", label: "Prefilled message", ph: "Hi!", ta: true }], build: (v) => `https://wa.me/${(v.phone || "").replace(/[^0-9]/g, "")}${v.msg ? `?text=${encodeURIComponent(v.msg)}` : ""}` },
+  { id: "location", icon: "📍", name: "Location", dyn: true, fields: [{ k: "query", label: "Place or address", ph: "Ahmedabad, Gujarat" }], build: (v) => `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(v.query || "")}` },
+  { id: "wifi", icon: "📶", name: "WiFi", dyn: false, fields: [{ k: "ssid", label: "Network", ph: "MyWiFi" }, { k: "pass", label: "Password", ph: "password" }], build: (v) => `WIFI:T:WPA;S:${v.ssid || ""};P:${v.pass || ""};;` },
+  { id: "upi", icon: "💳", name: "UPI", dyn: false, fields: [{ k: "vpa", label: "UPI ID", ph: "name@okbank" }, { k: "pn", label: "Payee", ph: "Vishal" }, { k: "am", label: "Amount", ph: "500" }], build: (v) => `upi://pay?pa=${v.vpa || ""}&pn=${encodeURIComponent(v.pn || "")}${v.am ? "&am=" + v.am : ""}&cu=INR` },
+  { id: "vcard", icon: "👤", name: "Contact", dyn: false, fields: [{ k: "fn", label: "Name", ph: "Vishal H Raval" }, { k: "tel", label: "Phone", ph: "+91..." }, { k: "email", label: "Email", ph: "a@b.com" }, { k: "org", label: "Company (optional)", ph: "Jupiter Technologies" }], build: (v) => `BEGIN:VCARD\nVERSION:3.0\nFN:${v.fn || ""}\nTEL:${v.tel || ""}\nEMAIL:${v.email || ""}${v.org ? "\nORG:" + v.org : ""}\nEND:VCARD` },
+  { id: "event", icon: "📅", name: "Event", dyn: false, fields: [{ k: "title", label: "Title", ph: "Product launch" }, { k: "loc", label: "Location", ph: "Ahmedabad" }, { k: "start", label: "Starts", type: "datetime-local" }, { k: "end", label: "Ends", type: "datetime-local" }], build: (v) => `BEGIN:VEVENT\nSUMMARY:${v.title || ""}\nLOCATION:${v.loc || ""}\nDTSTART:${vcalTime(v.start)}\nDTEND:${vcalTime(v.end)}\nEND:VEVENT` },
 ];
 
 export default function Dashboard() {
@@ -92,7 +99,7 @@ export default function Dashboard() {
         <div style={{ display: "flex", alignItems: "center", gap: 10, fontWeight: 800, fontSize: 18, padding: "6px 8px 18px" }}>
           <span className="logo">▦</span> India QRCode
         </div>
-        {[["overview", "▨ Dashboard"], ["create", "＋ Create QR"], ["codes", "▤ My QR Codes"], ["billing", "💳 Billing & Plan"], ["analytics", "📈 Analytics"], ["support", "🛟 Support"], ["account", "👤 My Account"]].map(([id, label]) => (
+        {[["overview", "▨ Dashboard"], ["create", "＋ Create QR"], ["codes", "▤ My QR Codes"], ["billing", "💳 Billing & Plan"], ["analytics", "📈 Analytics"], ["protools", "🚀 Bulk & API"], ["support", "🛟 Support"], ["account", "👤 My Account"]].map(([id, label]) => (
           <div key={id} onClick={() => setTab(id)} style={navStyle(tab === id)}>{label}</div>
         ))}
         {profile?.role === "admin" && <Link href="/admin" style={{ ...navStyle(false), color: "var(--gold)" }}>🛡 Admin Panel</Link>}
@@ -119,6 +126,7 @@ export default function Dashboard() {
           {tab === "codes" && <Codes codes={codes} setTab={setTab} supabase={supabase} onChange={load} flash={flash} onViewAnalytics={(id) => { setAnalyticsCode(id); setTab("analytics"); }} />}
           {tab === "billing" && <Billing supabase={supabase} profile={profile} plans={plans} txns={txns} orders={orders} settings={settings} onChange={load} flash={flash} />}
           {tab === "analytics" && <Analytics codes={codes} scans={scans} totalScans={totalScans} initialCode={analyticsCode} />}
+          {tab === "protools" && <ProTools supabase={supabase} profile={profile} onChange={load} flash={flash} onUpgrade={() => setTab("billing")} />}
           {tab === "support" && <Support supabase={supabase} tickets={tickets} onChange={load} flash={flash} />}
           {tab === "account" && <Account supabase={supabase} profile={profile} plans={plans} orders={orders} settings={settings} onChange={load} flash={flash} />}
         </div>
@@ -304,6 +312,110 @@ function Field({ label, children }) {
     <div className="field">
       <label>{label}</label>
       {children}
+    </div>
+  );
+}
+
+function ProTools({ supabase, profile, onChange, flash, onUpgrade }) {
+  const isPro = profile?.plan === "pro";
+  const credits = profile?.credits ?? 0;
+  const [bulkText, setBulkText] = useState("");
+  const [bulkDyn, setBulkDyn] = useState(true);
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [apiBusy, setApiBusy] = useState(false);
+  const [showKey, setShowKey] = useState(false);
+  const inp = { width: "100%", background: "#fff", border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px", color: "var(--txt)", fontFamily: "inherit", fontSize: 14 };
+
+  const rows = bulkText.split("\n").map((l) => l.trim()).filter(Boolean).map((line) => {
+    const i = line.indexOf(",");
+    if (i > -1) { const name = line.slice(0, i).trim(); const content = line.slice(i + 1).trim(); return { name: name || "Bulk QR", type: "URL", content }; }
+    return { name: "Bulk QR", type: "URL", content: line };
+  });
+
+  async function runBulk() {
+    if (rows.length === 0) { flash("Add at least one line"); return; }
+    if (rows.length > credits) { flash(`You have ${credits} credits but ${rows.length} rows — buy more or reduce the list`); return; }
+    setBulkBusy(true);
+    const { data, error } = await supabase.rpc("qr_bulk_create", { p_rows: rows, p_dynamic: bulkDyn });
+    setBulkBusy(false);
+    if (error) { flash(error.message === "no_credits" ? "Not enough credits" : "Error: " + error.message); return; }
+    setBulkText(""); flash(`✅ Created ${data} QR codes — see My QR Codes`); onChange();
+  }
+  async function genKey() {
+    setApiBusy(true);
+    const { error } = await supabase.rpc("qr_generate_api_key");
+    setApiBusy(false);
+    if (error) { flash(error.message === "pro_required" ? "API access is a Pro feature" : "Error: " + error.message); return; }
+    setShowKey(true); flash("✅ API key generated"); onChange();
+  }
+  async function revokeKey() {
+    if (!window.confirm("Revoke the current API key? Any integrations using it will stop working.")) return;
+    const { error } = await supabase.rpc("qr_revoke_api_key");
+    if (error) { flash("Error: " + error.message); return; }
+    flash("API key revoked"); onChange();
+  }
+
+  const ProGate = ({ children }) => (
+    <div style={{ textAlign: "center", padding: "20px 0" }}>
+      <div style={{ fontSize: 30, marginBottom: 8 }}>🔒</div>
+      <p style={{ color: "var(--soft)", fontSize: 14, marginBottom: 14 }}>{children}</p>
+      <button className="btn btn-primary btn-sm" onClick={onUpgrade}>Upgrade to Pro</button>
+    </div>
+  );
+
+  return (
+    <div style={{ display: "grid", gap: 18, maxWidth: 760 }}>
+      <div className="card">
+        <h3 style={{ fontSize: 17, marginBottom: 4 }}>Bulk generation <span style={{ fontSize: 11, color: "var(--brand)", fontWeight: 700 }}>PRO</span></h3>
+        <p style={{ fontSize: 13, color: "var(--soft)", marginBottom: 14 }}>Create many QR codes at once — one per line, as <code>Name, https://link</code> (the name is optional).</p>
+        {!isPro ? <ProGate>Bulk generation is available on the Pro plan.</ProGate> : (
+          <>
+            <textarea value={bulkText} onChange={(e) => setBulkText(e.target.value)} rows={7} placeholder={"Menu, https://mysite.com/menu\nOffers, https://mysite.com/offers\nhttps://mysite.com/contact"} style={{ ...inp, resize: "vertical", fontFamily: "monospace", fontSize: 13 }} />
+            <label style={{ display: "flex", alignItems: "center", gap: 8, margin: "10px 0", fontSize: 13 }}>
+              <input type="checkbox" checked={bulkDyn} onChange={(e) => setBulkDyn(e.target.checked)} /> Make them dynamic (track scans &amp; editable)
+            </label>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+              <span style={{ fontSize: 13, color: "var(--soft)" }}>{rows.length} code{rows.length === 1 ? "" : "s"} · uses {rows.length} of {credits} credits</span>
+              <button className="btn btn-primary btn-sm" onClick={runBulk} disabled={bulkBusy || rows.length === 0}>{bulkBusy ? "Creating…" : `Generate ${rows.length || ""} codes`}</button>
+            </div>
+          </>
+        )}
+      </div>
+
+      <div className="card">
+        <h3 style={{ fontSize: 17, marginBottom: 4 }}>API access <span style={{ fontSize: 11, color: "var(--brand)", fontWeight: 700 }}>PRO</span></h3>
+        <p style={{ fontSize: 13, color: "var(--soft)", marginBottom: 14 }}>Create and list QR codes programmatically from your own systems.</p>
+        {!isPro ? <ProGate>API access is available on the Pro plan.</ProGate> : (
+          <>
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ display: "block", fontSize: 12.5, color: "var(--soft)", marginBottom: 5 }}>Your API key</label>
+              {profile?.api_key ? (
+                <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                  <code style={{ background: "var(--card2)", border: "1px solid var(--line)", borderRadius: 8, padding: "8px 10px", fontSize: 12.5, wordBreak: "break-all", flex: 1, minWidth: 180 }}>{showKey ? profile.api_key : profile.api_key.slice(0, 10) + "••••••••••••••••"}</code>
+                  <button className="btn btn-ghost btn-sm" onClick={() => setShowKey(!showKey)}>{showKey ? "Hide" : "Reveal"}</button>
+                  <button className="btn btn-ghost btn-sm" onClick={() => { navigator.clipboard && navigator.clipboard.writeText(profile.api_key); flash("Copied"); }}>Copy</button>
+                </div>
+              ) : <p style={{ fontSize: 13, color: "var(--soft)" }}>No API key yet.</p>}
+              <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+                <button className="btn btn-primary btn-sm" onClick={genKey} disabled={apiBusy}>{apiBusy ? "…" : profile?.api_key ? "Rotate key" : "Generate key"}</button>
+                {profile?.api_key && <button className="btn btn-ghost btn-sm" onClick={revokeKey}>Revoke</button>}
+              </div>
+            </div>
+            <div style={{ background: "var(--card2)", border: "1px solid var(--line)", borderRadius: 10, padding: 14, fontSize: 12.5, lineHeight: 1.6 }}>
+              <div style={{ fontWeight: 700, marginBottom: 6 }}>Quick start</div>
+              <div style={{ color: "var(--soft)", marginBottom: 4 }}>Create a code:</div>
+              <pre style={{ margin: "0 0 10px", whiteSpace: "pre-wrap", wordBreak: "break-all", fontSize: 11.5 }}>{`curl -X POST ${SITE_URL}/api/v1/codes \\
+  -H "Authorization: Bearer YOUR_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{"name":"My code","url":"https://example.com"}'`}</pre>
+              <div style={{ color: "var(--soft)", marginBottom: 4 }}>List your codes:</div>
+              <pre style={{ margin: 0, whiteSpace: "pre-wrap", wordBreak: "break-all", fontSize: 11.5 }}>{`curl ${SITE_URL}/api/v1/codes \\
+  -H "Authorization: Bearer YOUR_API_KEY"`}</pre>
+              <div style={{ color: "var(--soft)", marginTop: 8, fontSize: 11.5 }}>Each created code consumes 1 credit and returns a short link you can print.</div>
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 }
@@ -517,6 +629,7 @@ function loadLogoFile(file, setter) {
 
 function Create({ supabase, profile, onSaved, onNoCredit, flash }) {
   const [type, setType] = useState("url");
+  const [dynamic, setDynamic] = useState(true);
   const [values, setValues] = useState({ url: "https://www.indiaqrcode.com" });
   const [fg, setFg] = useState("#181b3a");
   const [bg, setBg] = useState("#ffffff");
@@ -540,7 +653,7 @@ function Create({ supabase, profile, onSaved, onNoCredit, flash }) {
     if (noCredit) { onNoCredit(); return; }
     setSaving(true);
     const { error } = await supabase.rpc("qr_save_code", {
-      p_name: name, p_type: t.name, p_content: data, p_style: buildStyle(), p_dynamic: isDynamicType(type),
+      p_name: name, p_type: t.name, p_content: data, p_style: buildStyle(), p_dynamic: dynamic,
     });
     setSaving(false);
     if (error) { flash(error.message === "no_credits" ? "Out of credits — upgrade to continue" : "Error: " + error.message); if (error.message && error.message.includes("credit")) onNoCredit(); return; }
@@ -561,16 +674,25 @@ function Create({ supabase, profile, onSaved, onNoCredit, flash }) {
           <h3 style={{ fontSize: 16, marginBottom: 14 }}>Content type</h3>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 7, marginBottom: 16 }}>
             {TYPES.map((x) => (
-              <div key={x.id} onClick={() => { setType(x.id); setValues({}); }} style={{ display: "flex", gap: 6, alignItems: "center", padding: "8px 12px", borderRadius: 10, fontSize: 13, fontWeight: 500, cursor: "pointer", border: "1px solid var(--line)", color: type === x.id ? "#fff" : "var(--soft)", background: type === x.id ? "linear-gradient(135deg,var(--brand),var(--brand2))" : "var(--card2)" }}>{x.icon} {x.name}</div>
+              <div key={x.id} onClick={() => { setType(x.id); setValues({}); setDynamic(x.dyn); }} style={{ display: "flex", gap: 6, alignItems: "center", padding: "8px 12px", borderRadius: 10, fontSize: 13, fontWeight: 500, cursor: "pointer", border: "1px solid var(--line)", color: type === x.id ? "#fff" : "var(--soft)", background: type === x.id ? "linear-gradient(135deg,var(--brand),var(--brand2))" : "var(--card2)" }}>{x.icon} {x.name}</div>
             ))}
           </div>
           {t.fields.map((f) => (
             <div className="field" key={f.k}>
               <label>{f.label}</label>
               {f.ta ? <textarea value={values[f.k] || ""} placeholder={f.ph} onChange={(e) => setValues({ ...values, [f.k]: e.target.value })} />
-                : <input value={values[f.k] ?? (f.val || "")} placeholder={f.ph} onChange={(e) => setValues({ ...values, [f.k]: e.target.value })} />}
+                : <input type={f.type || "text"} value={values[f.k] ?? (f.val || "")} placeholder={f.ph} onChange={(e) => setValues({ ...values, [f.k]: e.target.value })} />}
             </div>
           ))}
+          <label style={{ display: "flex", alignItems: "flex-start", gap: 9, marginTop: 6, padding: "10px 12px", background: "var(--card2)", border: "1px solid var(--line)", borderRadius: 10, cursor: "pointer" }}>
+            <input type="checkbox" checked={dynamic} onChange={(e) => setDynamic(e.target.checked)} style={{ marginTop: 3 }} />
+            <span style={{ fontSize: 13 }}>
+              <b>Dynamic QR</b> — track scans &amp; edit the destination later.
+              <span style={{ display: "block", color: "var(--soft)", fontSize: 12, marginTop: 2 }}>
+                {dynamic ? "Scans route through a short link so you get analytics and can change the content anytime." : "Static: the content is encoded directly. Works offline for native actions (WiFi join, save contact), but scans aren't tracked and it can't be edited."}
+              </span>
+            </span>
+          </label>
         </div>
         <div className="card" style={{ marginTop: 18 }}>
           <h3 style={{ fontSize: 16, marginBottom: 14 }}>Style</h3>

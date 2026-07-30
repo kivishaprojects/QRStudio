@@ -5,6 +5,16 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./lib/supabaseConfig";
 export async function middleware(request) {
   const { pathname, searchParams } = request.nextUrl;
 
+  // Forward the old Vercel domain (on already-printed QR codes) to the new domain,
+  // preserving the path & query so existing dynamic codes keep resolving.
+  const host = request.headers.get("host") || "";
+  if (host.includes("qr-studio-portal")) {
+    const dest = new URL(request.url);
+    dest.protocol = "https:";
+    dest.host = "www.indiaqrcode.com";
+    return NextResponse.redirect(dest, 308);
+  }
+
   // If an auth code (email confirmation / OAuth) lands anywhere other than the
   // callback route, forward it to /auth/callback so the session gets created.
   const code = searchParams.get("code");

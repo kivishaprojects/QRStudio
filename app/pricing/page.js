@@ -7,7 +7,7 @@ const PLANS = [
   { name: "Free", price: "₹0", period: "", qr: "1 QR credit", addon: "₹499 / credit / year", best: false, features: ["1 free QR credit", "Dynamic QR + scan tracking", "PNG & SVG download"] },
   { name: "Starter", price: "₹999", period: "/ year", qr: "5 QR credits / year", addon: "₹399 / credit / year", best: false, features: ["5 QR / year", "Dynamic QR + analytics", "Logo & colour branding"] },
   { name: "Growth", price: "₹1,499", period: "/ year", qr: "10 QR credits / year", addon: "₹299 / credit / year", best: true, features: ["10 QR / year", "Everything in Starter", "Priority support"] },
-  { name: "Pro", price: "₹2,499", period: "/ year", qr: "20 QR credits / year", addon: "₹199 / credit / year", best: false, features: ["20 QR / year", "Bulk creation", "Team access"] },
+  { name: "Pro", price: "₹2,499", period: "/ year", qr: "20 QR credits / year", addon: "₹199 / credit / year", best: false, features: ["20 QR / year", "Bulk generation", "API access"] },
 ];
 
 export default function Pricing() {

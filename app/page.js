@@ -4,7 +4,7 @@ const FEATURES = [
   ["🔀", "Dynamic QR codes", "Change the destination anytime — even after printing."],
   ["📊", "Scan analytics", "Track scans, devices, and locations in real time."],
   ["🎨", "Custom styling", "Brand colors, rounded modules or dots, and logos."],
-  ["🧩", "10+ content types", "URL, WiFi, UPI, vCard, email, SMS and more."],
+  ["🧩", "11 content types", "URL, Text, Email, SMS, Phone, WhatsApp, Location, WiFi, UPI, vCard & Events."],
   ["🖼️", "PNG & SVG export", "Print-ready vectors, sharp at any size."],
   ["🔒", "Secure & private", "Row-level security and privacy-friendly analytics."],
 ];
@@ -12,7 +12,7 @@ const PLANS = [
   ["Free", "₹0", "1 QR free · addons ₹499", ["1 free credit", "Dynamic QR + scan tracking", "PNG & SVG download"]],
   ["Starter", "₹999/yr", "5 QR · addons ₹399", ["5 QR / year", "Dynamic + analytics", "Logo & colors"]],
   ["Growth", "₹1,499/yr", "10 QR · addons ₹299", ["10 QR / year", "Everything in Starter", "Priority support"], true],
-  ["Pro", "₹2,499/yr", "20 QR · addons ₹199", ["20 QR / year", "Bulk + API", "Team access"]],
+  ["Pro", "₹2,499/yr", "20 QR · addons ₹199", ["20 QR / year", "Bulk generation", "API access"]],
 ];
 
 export default function Home() {
