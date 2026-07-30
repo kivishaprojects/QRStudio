@@ -1171,10 +1171,7 @@ function Billing({ supabase, profile, plans, txns, orders, settings, onChange, f
               <>
                 <div className="field">
                   <label>GSTIN <span style={{ color: "var(--gold)" }}>*</span></label>
-                  <div style={{ display: "flex", gap: 8 }}>
-                    <input value={gstin} onChange={(e) => { setGstin(e.target.value.toUpperCase()); setGstLegal(""); }} placeholder="24ABCDE1234F1Z5" maxLength={15} style={{ textTransform: "uppercase", flex: 1 }} />
-                    <button type="button" className="btn btn-ghost" style={{ whiteSpace: "nowrap", fontSize: 13 }} onClick={fetchGst} disabled={!isValidGstin(gstin) || gstFetching}>{gstFetching ? "Fetching…" : "🔍 Auto-fetch"}</button>
-                  </div>
+                  <input value={gstin} onChange={(e) => { setGstin(e.target.value.toUpperCase()); setGstLegal(""); }} placeholder="24ABCDE1234F1Z5" maxLength={15} style={{ textTransform: "uppercase", width: "100%" }} />
                   {gstin && !isValidGstin(gstin) && <div style={{ fontSize: 11.5, color: "#c0392b", marginTop: 4 }}>That doesn't look like a valid 15-character GSTIN.</div>}
                   {gstState && <div style={{ fontSize: 11.5, color: "var(--accent)", marginTop: 4 }}>State auto-detected: <b>{gstState}</b></div>}
                   {gstLegal && <div style={{ fontSize: 11.5, color: "var(--soft)", marginTop: 3 }}>Registered as: <b style={{ color: "var(--txt)" }}>{gstLegal}</b></div>}

@@ -1,26 +1,18 @@
 import LegalLayout, { BIZ, H2, P } from "../../components/LegalLayout";
+import ContactForm from "../../components/ContactForm";
 
-export const metadata = { title: "Contact Us", description: "Get in touch with the India QRCode team — support, billing and grievance contacts.", alternates: { canonical: "/contact" } };
+export const metadata = { title: "Contact Us", description: "Get in touch with the India QR Code team — send an enquiry.", alternates: { canonical: "/contact" } };
 
 export default function Contact() {
-  const row = { display: "flex", gap: 10, padding: "12px 0", borderBottom: "1px solid var(--line)", fontSize: 14.5 };
-  const k = { width: 150, color: "var(--soft)", flexShrink: 0 };
   return (
     <LegalLayout title="Contact Us" updated="July 2026">
       <P>
         We’re here to help. Whether you have a question about your account, a QR code, billing, or a
-        payment, the fastest way to reach us is through the details below or by raising a support
-        ticket from your dashboard.
+        payment, send us an enquiry using the form below and our team will get back to you. You can
+        also raise a support ticket from your dashboard.
       </P>
 
-      <div className="card" style={{ margin: "8px 0 6px" }}>
-        <div style={row}><div style={k}>Business name</div><div>{BIZ.company}</div></div>
-        <div style={row}><div style={k}>Brand</div><div>{BIZ.brand}</div></div>
-        <div style={row}><div style={k}>Email</div><div><a href={"mailto:" + BIZ.email} style={{ color: "var(--brand)" }}>{BIZ.email}</a></div></div>
-        <div style={row}><div style={k}>Website</div><div><a href={BIZ.site} style={{ color: "var(--brand)" }}>{BIZ.site}</a></div></div>
-        <div style={row}><div style={k}>Registered address</div><div>{BIZ.address}</div></div>
-        <div style={{ ...row, borderBottom: "none" }}><div style={k}>GSTIN</div><div>{BIZ.gstin}</div></div>
-      </div>
+      <ContactForm />
 
       <H2>Support hours</H2>
       <P>

@@ -11,7 +11,7 @@ export default function Admin() {
   const router = useRouter();
   const supabase = supabaseBrowser();
   const [me, setMe] = useState(null);
-  const [data, setData] = useState({ users: [], codes: [], txns: [], orders: [], settings: null, tickets: [], coupons: [], audit: [], backups: [] });
+  const [data, setData] = useState({ users: [], codes: [], txns: [], orders: [], settings: null, tickets: [], coupons: [], audit: [], backups: [], enquiries: [] });
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState("overview");
   const [msg, setMsg] = useState("");
@@ -51,7 +51,8 @@ export default function Admin() {
         supabase.from("qs_admin_audit").select("*").order("created_at", { ascending: false }).limit(200),
       ]);
       const { data: backups } = await supabase.from("qs_backups").select("id,created_at,kind,row_counts,size_bytes").order("created_at", { ascending: false }).limit(50);
-      setData({ users: users || [], codes: codes || [], txns: txns || [], orders: orders || [], settings: settings || null, tickets: tickets || [], coupons: coupons || [], audit: audit || [], backups: backups || [] });
+      const { data: enquiries } = await supabase.from("qs_enquiries").select("*").order("created_at", { ascending: false }).limit(200);
+      setData({ users: users || [], codes: codes || [], txns: txns || [], orders: orders || [], settings: settings || null, tickets: tickets || [], coupons: coupons || [], audit: audit || [], backups: backups || [], enquiries: enquiries || [] });
       if (settings) setSform({ gst_rate: String(settings.gst_rate ?? 18), gstin: settings.gstin || "", biz_name: settings.biz_name || "", biz_address: settings.biz_address || "", hsn: settings.hsn || "", logo_url: settings.logo_url || "" });
       setAform({ phone: prof.phone || "" });
     }
@@ -158,7 +159,7 @@ export default function Admin() {
     );
   }
 
-  const { users, codes, txns, orders, tickets, coupons, audit, backups } = data;
+  const { users, codes, txns, orders, tickets, coupons, audit, backups, enquiries } = data;
   const paying = users.filter((u) => u.plan !== "free").length;
   const totalScans = codes.reduce((a, c) => a + (c.scans || 0), 0);
   const revenue = txns.reduce((a, t) => a + (t.amount || 0), 0);
@@ -247,8 +248,9 @@ export default function Admin() {
           <img src="/logo.png" alt="India QR Code" style={{ height: 66 }} />
           <div style={{ fontSize: 12, color: "var(--soft)", fontWeight: 700, letterSpacing: ".12em", marginTop: 6 }}>ADMIN PANEL</div>
         </div>
-        {[["overview", "▨ Overview"], ["users", "👥 Users"], ["revenue", "₹ Revenue"], ["bills", "🧾 Bills Generated"], ["codes", "▤ QR Codes"], ["coupons", "🎟 Coupons"], ["support", "🛟 Support"], ["audit", "📜 Audit Log"], ["backup", "💾 Backup"], ["settings", "⚙ Settings"]].map(([id, l]) => {
-          const openCount = id === "support" ? (data.tickets || []).filter((t) => t.status === "open" || t.status === "in_progress").length : 0;
+        {[["overview", "▨ Overview"], ["users", "👥 Users"], ["revenue", "₹ Revenue"], ["bills", "🧾 Bills Generated"], ["codes", "▤ QR Codes"], ["coupons", "🎟 Coupons"], ["support", "🛟 Support"], ["enquiries", "✉️ Enquiries"], ["audit", "📜 Audit Log"], ["backup", "💾 Backup"], ["settings", "⚙ Settings"]].map(([id, l]) => {
+          const openCount = id === "support" ? (data.tickets || []).filter((t) => t.status === "open" || t.status === "in_progress").length
+            : id === "enquiries" ? (data.enquiries || []).filter((e) => !e.handled).length : 0;
           return (
           <div key={id} onClick={() => setTab(id)} style={{ padding: "11px 13px", borderRadius: 11, marginBottom: 3, fontSize: 14, cursor: "pointer", color: tab === id ? "#fff" : "var(--soft)", background: tab === id ? "linear-gradient(135deg,var(--brand),var(--brand2))" : "transparent", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <span>{l}</span>
@@ -431,6 +433,33 @@ export default function Admin() {
 
         {tab === "backup" && (
           <AdminBackup supabase={supabase} backups={backups || []} onChange={load} flash={flash} />
+        )}
+
+        {tab === "enquiries" && (
+          <div className="card">
+            <h3 style={{ fontSize: 16, marginBottom: 14 }}>Contact enquiries ({(enquiries || []).length})</h3>
+            {(!enquiries || enquiries.length === 0) ? <p style={{ color: "var(--soft)" }}>No enquiries yet. Submissions from the Contact page appear here.</p> : (
+              <div style={{ overflowX: "auto" }}>
+                <table><thead><tr><th>Date</th><th>Name</th><th>Email</th><th>Phone</th><th>Subject</th><th>Message</th><th>Status</th></tr></thead>
+                  <tbody>{enquiries.map((e) => (
+                    <tr key={e.id}>
+                      <td style={{ color: "var(--soft)", fontSize: 12 }}>{new Date(e.created_at).toLocaleString()}</td>
+                      <td>{e.name || "—"}</td>
+                      <td style={{ fontSize: 12.5 }}><a href={"mailto:" + e.email} style={{ color: "var(--brand2)" }}>{e.email}</a></td>
+                      <td style={{ fontSize: 12.5 }}>{e.phone || "—"}</td>
+                      <td style={{ fontSize: 12.5 }}>{e.subject || "—"}</td>
+                      <td style={{ fontSize: 12.5, maxWidth: 320, whiteSpace: "pre-wrap" }}>{e.message}</td>
+                      <td>
+                        {e.handled
+                          ? <button className="btn btn-ghost btn-sm" onClick={async () => { await supabase.rpc("qr_admin_set_enquiry_handled", { p_id: e.id, p_handled: false }); load(); }}>Reopen</button>
+                          : <button className="btn btn-ghost btn-sm" style={{ color: "var(--accent)" }} onClick={async () => { await supabase.rpc("qr_admin_set_enquiry_handled", { p_id: e.id, p_handled: true }); flash("Marked handled"); load(); }}>✓ Mark done</button>}
+                      </td>
+                    </tr>
+                  ))}</tbody>
+                </table>
+              </div>
+            )}
+          </div>
         )}
 
         {tab === "support" && (
