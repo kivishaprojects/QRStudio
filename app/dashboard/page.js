@@ -516,6 +516,34 @@ function Billing({ supabase, profile, plans, txns, orders, onChange, flash }) {
     if (digits.length < 10) { flash("Enter a valid 10-digit phone number"); return; }
     startCheckout({ kind: pending.kind, planId: pending.planId, qty: pending.qty, phone: digits });
   }
+  function retry(o) {
+    const label = (o.kind === "plan" ? (o.plan || "Plan") + " package" : (o.qty || "") + " addon credits") + " (retry)";
+    setPending({ kind: o.kind, planId: o.plan, qty: o.qty, amount: o.amount, label });
+  }
+  function downloadInvoice(o) {
+    const w = window.open("", "_blank"); if (!w) return;
+    const item = o.kind === "plan" ? (o.plan || "Plan") + " package" : (o.qty || "") + " addon credits";
+    const date = new Date(o.paid_at || o.created_at).toLocaleString();
+    w.document.write(
+      '<html><head><title>Invoice ' + (o.invoice_no || o.id) + '</title><style>' +
+      'body{font-family:Arial,sans-serif;color:#1b2138;max-width:720px;margin:auto;padding:32px}' +
+      '.head{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #5566f2;padding-bottom:14px}' +
+      '.brand{font-size:22px;font-weight:800}.muted{color:#5f6982;font-size:12px}' +
+      'table{width:100%;border-collapse:collapse;margin-top:22px;font-size:13px}' +
+      'th,td{border-bottom:1px solid #e2e7f1;padding:9px 8px;text-align:left}th{color:#5f6982;font-size:11px;text-transform:uppercase}' +
+      '.tot{text-align:right;font-size:18px;font-weight:800;margin-top:14px}.tag{color:#5f6982;font-size:11px;margin-top:30px}' +
+      '</style></head><body>' +
+      '<div class="head"><div><div class="brand">QR Studio</div><div class="muted">Developed by Jupiter Technologies · Made in India</div></div>' +
+      '<div style="text-align:right"><div style="font-size:18px;font-weight:700">TAX INVOICE</div><div class="muted">' + (o.invoice_no || o.id) + '</div><div class="muted">' + date + '</div></div></div>' +
+      '<div style="margin-top:18px"><div class="muted">BILLED TO</div><div>' + (profile && profile.email ? profile.email : "Customer") + '</div></div>' +
+      '<table><thead><tr><th>Description</th><th style="text-align:right">Amount</th></tr></thead>' +
+      '<tbody><tr><td>' + item + '</td><td style="text-align:right">₹' + o.amount + '</td></tr></tbody></table>' +
+      '<div class="tot">Total paid: ₹' + o.amount + '</div>' +
+      '<div class="tag">Order ID: ' + o.id + ' · Payment via Cashfree.<br/>This is a system-generated invoice. GSTIN can be added once your business is GST-registered.</div>' +
+      '<scr' + 'ipt>window.onload=function(){window.print()}</scr' + 'ipt></body></html>'
+    );
+    w.document.close();
+  }
 
   return (
     <>
@@ -549,14 +577,19 @@ function Billing({ supabase, profile, plans, txns, orders, onChange, flash }) {
       <div className="card" style={{ marginTop: 18 }}>
         <h3 style={{ fontSize: 16, marginBottom: 12 }}>Payment history</h3>
         {(!orders || orders.length === 0) ? <p style={{ color: "var(--soft)" }}>No payments yet.</p> : (
-          <table><thead><tr><th>Date</th><th>Item</th><th>Amount</th><th>Status</th><th>Order ID</th></tr></thead>
+          <table><thead><tr><th>Date</th><th>Invoice</th><th>Item</th><th>Amount</th><th>Status</th><th></th></tr></thead>
             <tbody>{orders.map((o) => (
               <tr key={o.id}>
                 <td style={{ color: "var(--soft)" }}>{new Date(o.created_at).toLocaleString()}</td>
+                <td style={{ color: "var(--soft)", fontSize: 12 }}>{o.invoice_no || "—"}</td>
                 <td>{o.kind === "plan" ? (o.plan || "Plan") + " package" : (o.qty || "") + " addon credits"}</td>
                 <td><b>₹{o.amount}</b></td>
                 <td><span className={"pill " + (o.status === "paid" ? "dyn" : o.status === "failed" ? "stat" : "active")}>{o.status}</span></td>
-                <td style={{ color: "var(--soft)", fontSize: 11.5 }}>{o.id}</td>
+                <td>
+                  {o.status === "paid"
+                    ? <button className="btn btn-ghost btn-sm" onClick={() => downloadInvoice(o)}>🧾 Invoice</button>
+                    : <button className="btn btn-primary btn-sm" onClick={() => retry(o)}>↻ Retry</button>}
+                </td>
               </tr>
             ))}</tbody>
           </table>

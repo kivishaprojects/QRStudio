@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import crypto from "crypto";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 import { getOrder } from "../../../../lib/cashfree";
+import { sendOrderReceipt } from "../../../../lib/email";
 
 export const dynamic = "force-dynamic";
 
@@ -27,7 +28,8 @@ export async function POST(request) {
     try {
       const order = await getOrder(orderId); // re-confirm with Cashfree before granting
       if (order.order_status === "PAID" && admin) {
-        await admin.rpc("qr_fulfill_order", { p_order_id: orderId });
+        const { data } = await admin.rpc("qr_fulfill_order", { p_order_id: orderId });
+        if (data === "fulfilled") await sendOrderReceipt(admin, orderId);
       }
     } catch (_) {}
   }

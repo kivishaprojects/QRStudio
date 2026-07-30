@@ -113,15 +113,15 @@ export default function Admin() {
             <div className="card" style={{ marginBottom: 18 }}>
               <h3 style={{ fontSize: 16, marginBottom: 14 }}>Cashfree payments</h3>
               {(!orders || orders.length === 0) ? <p style={{ color: "var(--soft)" }}>No payment orders yet.</p> : (
-                <table><thead><tr><th>Date</th><th>User</th><th>Item</th><th>Amount</th><th>Status</th><th>Order ID</th></tr></thead>
+                <table><thead><tr><th>Date</th><th>Invoice</th><th>User</th><th>Item</th><th>Amount</th><th>Status</th></tr></thead>
                   <tbody>{orders.map((o) => (
                     <tr key={o.id}>
                       <td style={{ color: "var(--soft)" }}>{new Date(o.created_at).toLocaleString()}</td>
+                      <td style={{ color: "var(--soft)", fontSize: 12 }}>{o.invoice_no || "—"}</td>
                       <td>{emailById[o.user_id] || "—"}</td>
                       <td>{o.kind === "plan" ? (o.plan || "plan") + " package" : (o.qty || "") + " addons"}</td>
                       <td><b>₹{o.amount}</b></td>
                       <td><span className={"pill " + (o.status === "paid" ? "pro" : o.status === "failed" ? "free" : "starter")}>{o.status}</span></td>
-                      <td style={{ color: "var(--soft)", fontSize: 11 }}>{o.id}</td>
                     </tr>
                   ))}</tbody>
                 </table>
