@@ -46,6 +46,6 @@ export async function POST(request) {
       status: r.status,
     });
   } catch (e) {
-    return NextResponse.json({ configured: true, error: e.message || "Lookup failed", state: stateFromGstin(gstin) }, { status: 502 });
+    return NextResponse.json({ configured: true, error: e.message || "Lookup failed", code: e.code || "", status: e.status || 0, state: stateFromGstin(gstin) }, { status: 502 });
   }
 }

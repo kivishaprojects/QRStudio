@@ -1036,7 +1036,7 @@ function Billing({ supabase, profile, plans, txns, orders, settings, onChange, f
       const j = await res.json();
       if (j.configured === false) { flash("Auto-fetch isn't switched on — please type your city & pincode."); }
       else if (j.valid === false) { flash("This GSTIN looks invalid or inactive (" + (j.status || "") + ")."); }
-      else if (j.error) { flash("Lookup failed: " + j.error); }
+      else if (j.error) { flash("Auto-fetch is unavailable right now — just enter city & pincode manually; you can still continue to payment."); }
       else {
         if (j.city) setGstCity(j.city);
         if (j.pincode) setGstPin(j.pincode);
