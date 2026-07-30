@@ -41,8 +41,23 @@ Sign up, then visit `/admin` and click **Claim admin (first user)** — works on
 update public.qr_profiles set role='admin' where email='you@email.com';
 ```
 
+## Payments (Cashfree)
+Subscriptions and addon purchases go through Cashfree. The browser calls `/api/cashfree/create-order`
+(amount computed server-side from `qr_plans`), Cashfree's JS SDK opens checkout, and credits are
+granted only after payment is confirmed — via `/api/cashfree/verify` on return and the
+`/api/cashfree/webhook` callback. Fulfillment runs in `qr_fulfill_order` (idempotent, service-role only).
+
+Set these env vars in Vercel:
+- `NEXT_PUBLIC_CASHFREE_MODE` = `sandbox` | `production` (public, for the browser SDK)
+- `CASHFREE_ENV` = `sandbox` | `production` (server)
+- `CASHFREE_APP_ID` = Cashfree App ID (server secret)
+- `CASHFREE_SECRET_KEY` = Cashfree Secret Key (server secret)
+- `SUPABASE_SERVICE_ROLE_KEY` = Supabase → Settings → API → service_role (server secret)
+
+Add the webhook in the Cashfree dashboard: `https://<your-domain>/api/cashfree/webhook`.
+Use Cashfree test cards in sandbox to try the full flow.
+
 ## Next steps to productionise
-- Wire a real payment gateway (Razorpay) into `qr_subscribe` / `qr_buy_addons` flows
 - Point QR content at the `/r/[id]` redirect URL to enable true dynamic editing + richer scan analytics
 - Add email verification, password reset, and team/multi-seat support
 

@@ -3,7 +3,7 @@ import { useEffect, useState, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabaseBrowser } from "../../lib/supabaseBrowser";
-import { SITE_URL } from "../../lib/supabaseConfig";
+import { SITE_URL, CASHFREE_MODE } from "../../lib/supabaseConfig";
 import QRCanvas, { drawQR, composeBranded } from "../../components/QRCanvas";
 
 // Dynamic codes (URL type) encode a redirect through /r/<id> so the destination
@@ -53,6 +53,10 @@ export default function Dashboard() {
   }, [router, supabase]);
 
   useEffect(() => { load(); }, [load]);
+  // Returning from Cashfree checkout? jump to Billing so the order gets verified.
+  useEffect(() => {
+    if (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("order_id")) setTab("billing");
+  }, []);
   function flash(m) { setToast(m); setTimeout(() => setToast(""), 2200); }
 
   async function signOut() { await supabase.auth.signOut(); router.push("/login"); router.refresh(); }
@@ -447,21 +451,56 @@ function Billing({ supabase, profile, plans, txns, onChange, flash }) {
   const [busy, setBusy] = useState(false);
   const rate = plans.find((p) => p.id === profile?.plan)?.addon_rate || 100;
 
-  async function subscribe(id) {
-    setBusy(true);
-    const { error } = await supabase.rpc("qr_subscribe", { p_plan: id });
-    setBusy(false);
-    if (error) return flash("Error: " + error.message);
-    flash("🎉 Subscribed! Credits added."); onChange();
+  // On return from Cashfree checkout, verify the order and grant credits.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const oid = new URLSearchParams(window.location.search).get("order_id");
+    if (!oid) return;
+    fetch("/api/cashfree/verify?order_id=" + encodeURIComponent(oid))
+      .then((r) => r.json())
+      .then((j) => {
+        if (j.status === "paid") { flash("🎉 Payment successful — credits added!"); onChange(); }
+        else if (j.error) flash("Payment check: " + j.error);
+        else flash("Payment status: " + (j.status || "pending"));
+        window.history.replaceState({}, "", "/dashboard");
+      })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function loadSdk() {
+    return new Promise((resolve, reject) => {
+      if (window.Cashfree) return resolve(window.Cashfree);
+      const s = document.createElement("script");
+      s.src = "https://sdk.cashfree.com/js/v3/cashfree.js";
+      s.onload = () => resolve(window.Cashfree);
+      s.onerror = () => reject(new Error("Could not load Cashfree SDK"));
+      document.body.appendChild(s);
+    });
   }
-  async function buyAddons() {
-    if (qty < 1) return;
+  async function startCheckout(payload) {
     setBusy(true);
-    const { error } = await supabase.rpc("qr_buy_addons", { p_qty: Number(qty) });
-    setBusy(false);
-    if (error) return flash("Error: " + error.message);
-    flash("✅ Credits added."); onChange();
+    try {
+      const res = await fetch("/api/cashfree/create-order", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+      });
+      const j = await res.json();
+      if (res.status === 503 || j.configured === false) {
+        flash("Payments aren't switched on yet — add your Cashfree keys in Vercel.");
+        setBusy(false); return;
+      }
+      if (!res.ok) { flash("Error: " + (j.error || "could not start payment")); setBusy(false); return; }
+      const CF = await loadSdk();
+      const cashfree = CF({ mode: CASHFREE_MODE });
+      cashfree.checkout({ paymentSessionId: j.paymentSessionId, redirectTarget: "_self" });
+      // page navigates to Cashfree; on return, the effect above verifies.
+    } catch (e) {
+      flash("Error: " + e.message);
+      setBusy(false);
+    }
   }
+  const subscribe = (id) => startCheckout({ kind: "plan", planId: id });
+  const buyAddons = () => { if (qty >= 1) startCheckout({ kind: "addon", qty: Number(qty) }); };
 
   return (
     <>
@@ -500,7 +539,7 @@ function Billing({ supabase, profile, plans, txns, onChange, flash }) {
           </table>
         )}
       </div>
-      <p style={{ marginTop: 14, fontSize: 12, color: "var(--soft)" }}>Note: this demo credits your account instantly. Wire a payment gateway (Razorpay) into these actions to charge real money.</p>
+      <p style={{ marginTop: 14, fontSize: 12, color: "var(--soft)" }}>🔒 Payments are processed securely by <b style={{ color: "var(--txt)" }}>Cashfree</b>. Credits are added only after your payment is confirmed. (Requires Cashfree keys configured in the deployment.)</p>
     </>
   );
 }
