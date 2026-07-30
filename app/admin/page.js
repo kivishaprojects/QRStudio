@@ -8,7 +8,7 @@ export default function Admin() {
   const router = useRouter();
   const supabase = supabaseBrowser();
   const [me, setMe] = useState(null);
-  const [data, setData] = useState({ users: [], codes: [], txns: [] });
+  const [data, setData] = useState({ users: [], codes: [], txns: [], orders: [] });
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState("overview");
   const [msg, setMsg] = useState("");
@@ -20,12 +20,13 @@ export default function Admin() {
     const { data: prof } = await supabase.from("qr_profiles").select("*").eq("id", user.id).single();
     setMe(prof);
     if (prof?.role === "admin") {
-      const [{ data: users }, { data: codes }, { data: txns }] = await Promise.all([
+      const [{ data: users }, { data: codes }, { data: txns }, { data: orders }] = await Promise.all([
         supabase.from("qr_profiles").select("*").order("created_at", { ascending: false }),
         supabase.from("qs_codes").select("*"),
         supabase.from("qr_transactions").select("*").order("created_at", { ascending: false }),
+        supabase.from("qs_orders").select("*").order("created_at", { ascending: false }),
       ]);
-      setData({ users: users || [], codes: codes || [], txns: txns || [] });
+      setData({ users: users || [], codes: codes || [], txns: txns || [], orders: orders || [] });
     }
     setLoading(false);
   }, [router, supabase]);
@@ -54,10 +55,13 @@ export default function Admin() {
     );
   }
 
-  const { users, codes, txns } = data;
+  const { users, codes, txns, orders } = data;
   const paying = users.filter((u) => u.plan !== "free").length;
   const totalScans = codes.reduce((a, c) => a + (c.scans || 0), 0);
   const revenue = txns.reduce((a, t) => a + (t.amount || 0), 0);
+  const paidOrders = (orders || []).filter((o) => o.status === "paid");
+  const paidRevenue = paidOrders.reduce((a, o) => a + (o.amount || 0), 0);
+  const emailById = {}; users.forEach((u) => (emailById[u.id] = u.email));
   const dist = ["starter", "growth", "pro"].map((id) => ({ id, n: users.filter((u) => u.plan === id).length }));
 
   return (
@@ -76,7 +80,7 @@ export default function Admin() {
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))", gap: 16, marginBottom: 20 }}>
               <K label="Total users" v={users.length} />
               <K label="Paying users" v={paying} />
-              <K label="Total revenue" v={"₹" + revenue.toLocaleString()} />
+              <K label="Revenue (Cashfree)" v={"₹" + paidRevenue.toLocaleString()} />
               <K label="QR codes" v={codes.length} />
             </div>
             <div className="card">
@@ -99,12 +103,37 @@ export default function Admin() {
           </div>
         )}
         {tab === "revenue" && (
-          <div className="card">
-            <h3 style={{ fontSize: 16, marginBottom: 14 }}>Transactions — ₹{revenue.toLocaleString()} total</h3>
-            <table><thead><tr><th>Date</th><th>Description</th><th>Kind</th><th>Amount</th></tr></thead>
-              <tbody>{txns.map((t) => <tr key={t.id}><td style={{ color: "var(--soft)" }}>{new Date(t.created_at).toLocaleDateString()}</td><td>{t.description}</td><td>{t.kind}</td><td><b>₹{t.amount}</b></td></tr>)}</tbody>
-            </table>
-          </div>
+          <>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))", gap: 16, marginBottom: 18 }}>
+              <K label="Revenue collected (paid)" v={"₹" + paidRevenue.toLocaleString()} />
+              <K label="Paid orders" v={paidOrders.length} />
+              <K label="All orders" v={(orders || []).length} />
+              <K label="Pending / failed" v={(orders || []).filter((o) => o.status !== "paid").length} />
+            </div>
+            <div className="card" style={{ marginBottom: 18 }}>
+              <h3 style={{ fontSize: 16, marginBottom: 14 }}>Cashfree payments</h3>
+              {(!orders || orders.length === 0) ? <p style={{ color: "var(--soft)" }}>No payment orders yet.</p> : (
+                <table><thead><tr><th>Date</th><th>User</th><th>Item</th><th>Amount</th><th>Status</th><th>Order ID</th></tr></thead>
+                  <tbody>{orders.map((o) => (
+                    <tr key={o.id}>
+                      <td style={{ color: "var(--soft)" }}>{new Date(o.created_at).toLocaleString()}</td>
+                      <td>{emailById[o.user_id] || "—"}</td>
+                      <td>{o.kind === "plan" ? (o.plan || "plan") + " package" : (o.qty || "") + " addons"}</td>
+                      <td><b>₹{o.amount}</b></td>
+                      <td><span className={"pill " + (o.status === "paid" ? "pro" : o.status === "failed" ? "free" : "starter")}>{o.status}</span></td>
+                      <td style={{ color: "var(--soft)", fontSize: 11 }}>{o.id}</td>
+                    </tr>
+                  ))}</tbody>
+                </table>
+              )}
+            </div>
+            <div className="card">
+              <h3 style={{ fontSize: 16, marginBottom: 14 }}>Account activity (credit grants) — ₹{revenue.toLocaleString()}</h3>
+              <table><thead><tr><th>Date</th><th>Description</th><th>Kind</th><th>Amount</th></tr></thead>
+                <tbody>{txns.map((t) => <tr key={t.id}><td style={{ color: "var(--soft)" }}>{new Date(t.created_at).toLocaleDateString()}</td><td>{t.description}</td><td>{t.kind}</td><td><b>₹{t.amount}</b></td></tr>)}</tbody>
+              </table>
+            </div>
+          </>
         )}
         {tab === "codes" && (
           <div className="card">

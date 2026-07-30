@@ -16,6 +16,7 @@ export async function POST(request) {
 
   const body = await request.json().catch(() => ({}));
   const kind = body.kind;
+  const phone = String(body.phone || "").replace(/[^0-9]/g, "").slice(-10);
 
   // Amounts are computed from the DB — never trusted from the client.
   let amount = 0, plan = null, qty = null;
@@ -35,12 +36,13 @@ export async function POST(request) {
 
   const orderId = "qrs" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
   await admin.from("qs_orders").insert({ id: orderId, user_id: user.id, kind, plan, qty, amount, status: "pending" });
+  if (phone && phone.length >= 10) { await admin.from("qr_profiles").update({ phone }).eq("id", user.id); }
 
   const origin = new URL(request.url).origin;
   try {
     const cf = await createOrder({
       orderId, amount,
-      customer: { id: user.id, email: user.email, phone: "9999999999" },
+      customer: { id: user.id, email: user.email, phone: phone && phone.length >= 10 ? phone : "9999999999" },
       returnUrl: `${origin}/dashboard?order_id={order_id}`,
       notifyUrl: `${origin}/api/cashfree/webhook`,
     });

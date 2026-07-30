@@ -34,6 +34,7 @@ export default function Dashboard() {
   const [codes, setCodes] = useState([]);
   const [txns, setTxns] = useState([]);
   const [scans, setScans] = useState([]);
+  const [orders, setOrders] = useState([]);
   const [toast, setToast] = useState("");
   const [loading, setLoading] = useState(true);
 
@@ -41,14 +42,15 @@ export default function Dashboard() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { router.push("/login"); return; }
     await supabase.rpc("qr_ensure_profile", { p_name: null });
-    const [{ data: prof }, { data: pl }, { data: cs }, { data: tx }, { data: sc }] = await Promise.all([
+    const [{ data: prof }, { data: pl }, { data: cs }, { data: tx }, { data: sc }, { data: od }] = await Promise.all([
       supabase.from("qr_profiles").select("*").eq("id", user.id).single(),
       supabase.from("qr_plans").select("*").order("sort"),
       supabase.from("qs_codes").select("*").order("created_at", { ascending: false }),
       supabase.from("qr_transactions").select("*").order("created_at", { ascending: false }),
       supabase.from("qs_scans").select("*").order("scanned_at", { ascending: false }).limit(1000),
+      supabase.from("qs_orders").select("*").order("created_at", { ascending: false }),
     ]);
-    setProfile(prof); setPlans(pl || []); setCodes(cs || []); setTxns(tx || []); setScans(sc || []);
+    setProfile(prof); setPlans(pl || []); setCodes(cs || []); setTxns(tx || []); setScans(sc || []); setOrders(od || []);
     setLoading(false);
   }, [router, supabase]);
 
@@ -97,7 +99,7 @@ export default function Dashboard() {
           {tab === "overview" && <Overview profile={profile} codes={codes} totalScans={totalScans} planName={planName} setTab={setTab} />}
           {tab === "create" && <Create supabase={supabase} profile={profile} onSaved={() => { load(); flash("✅ QR saved — 1 credit used"); setTab("codes"); }} onNoCredit={() => setTab("billing")} flash={flash} />}
           {tab === "codes" && <Codes codes={codes} setTab={setTab} supabase={supabase} onChange={load} flash={flash} onViewAnalytics={(id) => { setAnalyticsCode(id); setTab("analytics"); }} />}
-          {tab === "billing" && <Billing supabase={supabase} profile={profile} plans={plans} txns={txns} onChange={load} flash={flash} />}
+          {tab === "billing" && <Billing supabase={supabase} profile={profile} plans={plans} txns={txns} orders={orders} onChange={load} flash={flash} />}
           {tab === "analytics" && <Analytics codes={codes} scans={scans} totalScans={totalScans} initialCode={analyticsCode} />}
         </div>
       </div>
@@ -446,10 +448,13 @@ function Codes({ codes, setTab, supabase, onChange, flash, onViewAnalytics }) {
   );
 }
 
-function Billing({ supabase, profile, plans, txns, onChange, flash }) {
+function Billing({ supabase, profile, plans, txns, orders, onChange, flash }) {
   const [qty, setQty] = useState(5);
   const [busy, setBusy] = useState(false);
+  const [phone, setPhone] = useState("");
+  const [pending, setPending] = useState(null); // { kind, planId?, qty?, amount, label }
   const rate = plans.find((p) => p.id === profile?.plan)?.addon_rate || 100;
+  useEffect(() => { if (profile && profile.phone) setPhone(profile.phone); }, [profile]);
 
   // On return from Cashfree checkout, verify the order and grant credits.
   useEffect(() => {
@@ -499,8 +504,18 @@ function Billing({ supabase, profile, plans, txns, onChange, flash }) {
       setBusy(false);
     }
   }
-  const subscribe = (id) => startCheckout({ kind: "plan", planId: id });
-  const buyAddons = () => { if (qty >= 1) startCheckout({ kind: "addon", qty: Number(qty) }); };
+  function subscribe(id) {
+    const p = plans.find((x) => x.id === id);
+    setPending({ kind: "plan", planId: id, amount: p ? p.price : 0, label: (p ? p.name : "") + " package · " + (p ? p.qr_included : 0) + " QR/year" });
+  }
+  function buyAddons() {
+    if (qty >= 1) setPending({ kind: "addon", qty: Number(qty), amount: rate * Number(qty), label: qty + " addon credits @ ₹" + rate });
+  }
+  function confirmPay() {
+    const digits = String(phone).replace(/[^0-9]/g, "");
+    if (digits.length < 10) { flash("Enter a valid 10-digit phone number"); return; }
+    startCheckout({ kind: pending.kind, planId: pending.planId, qty: pending.qty, phone: digits });
+  }
 
   return (
     <>
@@ -532,14 +547,52 @@ function Billing({ supabase, profile, plans, txns, onChange, flash }) {
         </div>
       </div>
       <div className="card" style={{ marginTop: 18 }}>
-        <h3 style={{ fontSize: 16, marginBottom: 12 }}>Billing history</h3>
-        {txns.length === 0 ? <p style={{ color: "var(--soft)" }}>No transactions yet.</p> : (
+        <h3 style={{ fontSize: 16, marginBottom: 12 }}>Payment history</h3>
+        {(!orders || orders.length === 0) ? <p style={{ color: "var(--soft)" }}>No payments yet.</p> : (
+          <table><thead><tr><th>Date</th><th>Item</th><th>Amount</th><th>Status</th><th>Order ID</th></tr></thead>
+            <tbody>{orders.map((o) => (
+              <tr key={o.id}>
+                <td style={{ color: "var(--soft)" }}>{new Date(o.created_at).toLocaleString()}</td>
+                <td>{o.kind === "plan" ? (o.plan || "Plan") + " package" : (o.qty || "") + " addon credits"}</td>
+                <td><b>₹{o.amount}</b></td>
+                <td><span className={"pill " + (o.status === "paid" ? "dyn" : o.status === "failed" ? "stat" : "active")}>{o.status}</span></td>
+                <td style={{ color: "var(--soft)", fontSize: 11.5 }}>{o.id}</td>
+              </tr>
+            ))}</tbody>
+          </table>
+        )}
+      </div>
+      <div className="card" style={{ marginTop: 18 }}>
+        <h3 style={{ fontSize: 16, marginBottom: 12 }}>Account activity</h3>
+        {txns.length === 0 ? <p style={{ color: "var(--soft)" }}>No activity yet.</p> : (
           <table><thead><tr><th>Date</th><th>Description</th><th>Amount</th></tr></thead>
             <tbody>{txns.map((t) => <tr key={t.id}><td style={{ color: "var(--soft)" }}>{new Date(t.created_at).toLocaleDateString()}</td><td>{t.description}</td><td><b>₹{t.amount}</b></td></tr>)}</tbody>
           </table>
         )}
       </div>
       <p style={{ marginTop: 14, fontSize: 12, color: "var(--soft)" }}>🔒 Payments are processed securely by <b style={{ color: "var(--txt)" }}>Cashfree</b>. Credits are added only after your payment is confirmed. (Requires Cashfree keys configured in the deployment.)</p>
+
+      {pending && (
+        <div onClick={() => !busy && setPending(null)} style={{ position: "fixed", inset: 0, background: "rgba(20,25,50,.5)", backdropFilter: "blur(3px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 120, padding: 20 }}>
+          <div onClick={(e) => e.stopPropagation()} className="card" style={{ width: "100%", maxWidth: 400 }}>
+            <h3 style={{ fontSize: 18, marginBottom: 4 }}>Checkout</h3>
+            <p style={{ color: "var(--soft)", fontSize: 13.5, marginBottom: 14 }}>{pending.label}</p>
+            <div style={{ background: "var(--card2)", border: "1px solid var(--line)", borderRadius: 10, padding: "12px 14px", marginBottom: 14, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span style={{ color: "var(--soft)", fontSize: 13 }}>Amount payable</span>
+              <b style={{ fontFamily: "'Plus Jakarta Sans'", fontSize: 22, color: "var(--gold)" }}>₹{pending.amount.toLocaleString()}</b>
+            </div>
+            <div className="field">
+              <label>Phone number (for payment &amp; receipt)</label>
+              <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="10-digit mobile number" inputMode="numeric" maxLength={10} />
+            </div>
+            <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
+              <button className="btn btn-ghost" style={{ flex: 1, justifyContent: "center" }} onClick={() => setPending(null)} disabled={busy}>Cancel</button>
+              <button className="btn btn-primary" style={{ flex: 1, justifyContent: "center" }} onClick={confirmPay} disabled={busy}>{busy ? "Starting…" : "Pay ₹" + pending.amount.toLocaleString()}</button>
+            </div>
+            <p style={{ fontSize: 11, color: "var(--soft)", marginTop: 12, textAlign: "center" }}>Secured by Cashfree · UPI, cards, netbanking</p>
+          </div>
+        </div>
+      )}
     </>
   );
 }
