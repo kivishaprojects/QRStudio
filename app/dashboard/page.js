@@ -78,7 +78,7 @@ export default function Dashboard() {
         <div style={{ padding: "26px 28px 60px" }}>
           {tab === "overview" && <Overview profile={profile} codes={codes} totalScans={totalScans} planName={planName} setTab={setTab} />}
           {tab === "create" && <Create supabase={supabase} profile={profile} onSaved={() => { load(); flash("✅ QR saved — 1 credit used"); setTab("codes"); }} onNoCredit={() => setTab("billing")} flash={flash} />}
-          {tab === "codes" && <Codes codes={codes} setTab={setTab} />}
+          {tab === "codes" && <Codes codes={codes} setTab={setTab} supabase={supabase} onChange={load} flash={flash} />}
           {tab === "billing" && <Billing supabase={supabase} profile={profile} plans={plans} txns={txns} onChange={load} flash={flash} />}
           {tab === "analytics" && <Analytics codes={codes} totalScans={totalScans} />}
         </div>
@@ -206,7 +206,59 @@ function Create({ supabase, profile, onSaved, onNoCredit, flash }) {
   );
 }
 
-function Codes({ codes, setTab }) {
+function Codes({ codes, setTab, supabase, onChange, flash }) {
+  const [sel, setSel] = useState(null);
+  const [name, setName] = useState("");
+  const [content, setContent] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  function open(c) { setSel(c); setName(c.name); setContent(c.content); }
+  function close() { setSel(null); }
+
+  const style = (sel && sel.style) || {};
+  const fg = style.fg || "#181b3a", bg = style.bg || "#ffffff", dot = style.dot || "square";
+
+  function tempCanvas(size) {
+    const c = document.createElement("canvas");
+    drawQR(c, { data: content || (sel && sel.content) || " ", fg, bg, dot, ecl: "M", size });
+    return c;
+  }
+  function download() {
+    const a = document.createElement("a");
+    a.href = tempCanvas(900).toDataURL("image/png");
+    a.download = (name || "qr") + ".png";
+    a.click();
+    flash("PNG downloaded");
+  }
+  function printQR() {
+    const url = tempCanvas(900).toDataURL("image/png");
+    const w = window.open("", "_blank");
+    if (!w) { flash("Allow pop-ups to print"); return; }
+    w.document.write(
+      '<html><head><title>' + (name || "QR") + '</title></head>' +
+      '<body style="margin:0;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;font-family:sans-serif">' +
+      '<img src="' + url + '" style="width:340px;height:340px"/>' +
+      '<div style="margin-top:14px;font-size:18px">' + (name || "") + '</div>' +
+      '<scr' + 'ipt>window.onload=function(){window.print()}</scr' + 'ipt></body></html>'
+    );
+    w.document.close();
+  }
+  async function save() {
+    setBusy(true);
+    const { error } = await supabase.rpc("qr_update_code", { p_id: sel.id, p_name: name, p_content: content, p_style: null });
+    setBusy(false);
+    if (error) return flash("Error: " + error.message);
+    flash("✅ Saved"); close(); onChange();
+  }
+  async function del() {
+    if (typeof window !== "undefined" && !window.confirm("Delete this QR code permanently?")) return;
+    setBusy(true);
+    const { error } = await supabase.rpc("qr_delete_code", { p_id: sel.id });
+    setBusy(false);
+    if (error) return flash("Error: " + error.message);
+    flash("Deleted"); close(); onChange();
+  }
+
   return (
     <div className="card">
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
@@ -215,7 +267,7 @@ function Codes({ codes, setTab }) {
       </div>
       {codes.length === 0 ? <p style={{ color: "var(--soft)" }}>No codes yet.</p> : (
         <table>
-          <thead><tr><th>Name</th><th>Type</th><th>Content</th><th>Scans</th><th>Created</th><th>Status</th></tr></thead>
+          <thead><tr><th>Name</th><th>Type</th><th>Content</th><th>Scans</th><th>Created</th><th></th></tr></thead>
           <tbody>
             {codes.map((c) => (
               <tr key={c.id}>
@@ -223,11 +275,41 @@ function Codes({ codes, setTab }) {
                 <td style={{ color: "var(--soft)", maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.content}</td>
                 <td><b>{c.scans}</b></td>
                 <td style={{ color: "var(--soft)" }}>{new Date(c.created_at).toLocaleDateString()}</td>
-                <td><span className={"pill " + (c.dynamic ? "dyn" : "stat")}>{c.dynamic ? "Dynamic" : "Static"}</span></td>
+                <td><button className="btn btn-ghost btn-sm" onClick={() => open(c)}>Open</button></td>
               </tr>
             ))}
           </tbody>
         </table>
+      )}
+
+      {sel && (
+        <div onClick={close} style={{ position: "fixed", inset: 0, background: "rgba(20,25,50,.45)", backdropFilter: "blur(3px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100, padding: 20 }}>
+          <div onClick={(e) => e.stopPropagation()} className="card" style={{ width: "100%", maxWidth: 560, maxHeight: "90vh", overflowY: "auto" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+              <h3 style={{ fontSize: 17 }}>Manage QR code</h3>
+              <button className="btn btn-ghost btn-sm" onClick={close}>✕ Close</button>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: 20, alignItems: "start" }}>
+              <div style={{ background: "#fff", borderRadius: 14, padding: 14, border: "1px solid var(--line)" }}>
+                <QRCanvas value={content || " "} fg={fg} bg={bg} dot={dot} ecl="M" display={180} />
+              </div>
+              <div>
+                <div className="field"><label>Name</label><input value={name} onChange={(e) => setName(e.target.value)} /></div>
+                <div className="field"><label>Destination / content (edit the link here)</label><textarea value={content} onChange={(e) => setContent(e.target.value)} /></div>
+                <div style={{ fontSize: 12, color: "var(--soft)" }}>Scans: <b>{sel.scans}</b> · Type: {sel.type}</div>
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 9, flexWrap: "wrap", marginTop: 16 }}>
+              <button className="btn btn-primary" onClick={save} disabled={busy}>💾 Save changes</button>
+              <button className="btn btn-ghost" onClick={download}>⬇ Download PNG</button>
+              <button className="btn btn-ghost" onClick={printQR}>🖨 Print</button>
+              <button className="btn btn-ghost" onClick={del} disabled={busy} style={{ marginLeft: "auto", color: "var(--danger)" }}>🗑 Delete</button>
+            </div>
+            <div style={{ marginTop: 12, fontSize: 12, color: "var(--soft)", background: "var(--card2)", border: "1px solid var(--line)", borderRadius: 10, padding: 10 }}>
+              Editing changes what this QR encodes. After saving, <b>re-download or reprint</b> to use the updated code. (Editing does not cost a credit.)
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
