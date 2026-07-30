@@ -28,6 +28,7 @@ export default function Dashboard() {
   const router = useRouter();
   const supabase = supabaseBrowser();
   const [tab, setTab] = useState("overview");
+  const [analyticsCode, setAnalyticsCode] = useState("all");
   const [profile, setProfile] = useState(null);
   const [plans, setPlans] = useState([]);
   const [codes, setCodes] = useState([]);
@@ -91,9 +92,9 @@ export default function Dashboard() {
         <div style={{ padding: "26px 28px 60px" }}>
           {tab === "overview" && <Overview profile={profile} codes={codes} totalScans={totalScans} planName={planName} setTab={setTab} />}
           {tab === "create" && <Create supabase={supabase} profile={profile} onSaved={() => { load(); flash("✅ QR saved — 1 credit used"); setTab("codes"); }} onNoCredit={() => setTab("billing")} flash={flash} />}
-          {tab === "codes" && <Codes codes={codes} setTab={setTab} supabase={supabase} onChange={load} flash={flash} />}
+          {tab === "codes" && <Codes codes={codes} setTab={setTab} supabase={supabase} onChange={load} flash={flash} onViewAnalytics={(id) => { setAnalyticsCode(id); setTab("analytics"); }} />}
           {tab === "billing" && <Billing supabase={supabase} profile={profile} plans={plans} txns={txns} onChange={load} flash={flash} />}
-          {tab === "analytics" && <Analytics codes={codes} scans={scans} totalScans={totalScans} />}
+          {tab === "analytics" && <Analytics codes={codes} scans={scans} totalScans={totalScans} initialCode={analyticsCode} />}
         </div>
       </div>
       <div className={"toast" + (toast ? " show" : "")}>{toast}</div>
@@ -288,7 +289,7 @@ function BrandedPreview({ opts, display = 220 }) {
   return <canvas ref={ref} style={{ width: display, height: "auto", maxWidth: "100%", borderRadius: 8 }} />;
 }
 
-function Codes({ codes, setTab, supabase, onChange, flash }) {
+function Codes({ codes, setTab, supabase, onChange, flash, onViewAnalytics }) {
   const [sel, setSel] = useState(null);
   const [name, setName] = useState("");
   const [content, setContent] = useState("");
@@ -424,6 +425,7 @@ function Codes({ codes, setTab, supabase, onChange, flash }) {
               <button className="btn btn-primary" onClick={save} disabled={busy}>💾 Save</button>
               <button className="btn btn-ghost" onClick={download}>⬇ Download PNG</button>
               <button className="btn btn-ghost" onClick={printQR}>🖨 Print</button>
+              <button className="btn btn-ghost" onClick={() => { const id = sel.id; close(); onViewAnalytics && onViewAnalytics(id); }}>📈 View analytics</button>
               <button className="btn btn-ghost" onClick={del} disabled={busy} style={{ marginLeft: "auto", color: "var(--danger)" }}>🗑 Delete</button>
             </div>
             <div style={{ marginTop: 12, fontSize: 12, color: "var(--soft)", background: "var(--card2)", border: "1px solid var(--line)", borderRadius: 10, padding: 10 }}>
@@ -530,43 +532,154 @@ function Breakdown({ title, rows, total }) {
   );
 }
 
-function Analytics({ codes, scans, totalScans }) {
+function buildBuckets(start, end, events) {
+  const dayMs = 86400000;
+  const span = Math.max(1, Math.round((end - start) / dayMs) + 1);
+  const mode = span <= 31 ? "day" : span <= 210 ? "week" : "month";
+  const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  function keyFor(d) {
+    if (mode === "day") return d.toISOString().slice(0, 10);
+    if (mode === "week") { const dd = new Date(d); const off = (dd.getDay() + 6) % 7; dd.setDate(dd.getDate() - off); return dd.toISOString().slice(0, 10); }
+    return d.getFullYear() + "-" + (d.getMonth() + 1);
+  }
+  function label(key) {
+    if (mode === "month") { const m = +key.split("-")[1]; return MON[m - 1]; }
+    const d = new Date(key); return (d.getMonth() + 1) + "/" + d.getDate();
+  }
+  const buckets = [], idx = {};
+  let cur = new Date(start); cur.setHours(0, 0, 0, 0);
+  let guard = 0;
+  while (cur <= end && guard < 500) {
+    const key = keyFor(cur);
+    if (!(key in idx)) { idx[key] = buckets.length; buckets.push({ key, label: label(key), n: 0 }); }
+    if (mode === "day") cur.setDate(cur.getDate() + 1);
+    else if (mode === "week") cur.setDate(cur.getDate() + 7);
+    else cur.setMonth(cur.getMonth() + 1);
+    guard++;
+  }
+  events.forEach((e) => { const k = keyFor(new Date(e.scanned_at)); if (k in idx) buckets[idx[k]].n++; });
+  return buckets;
+}
+
+function Analytics({ codes, scans, totalScans, initialCode }) {
+  const [codeFilter, setCodeFilter] = useState(initialCode || "all");
+  const [preset, setPreset] = useState("30");
+  useEffect(() => { if (initialCode) setCodeFilter(initialCode); }, [initialCode]);
+  const [fromD, setFromD] = useState("");
+  const [toD, setToD] = useState("");
+
   const nameById = {}; codes.forEach((c) => (nameById[c.id] = c.name));
-  const evs = scans || [];
+  const all = scans || [];
 
-  // last 14 days
-  const today = new Date(); today.setHours(0, 0, 0, 0);
-  const days = [];
-  for (let i = 13; i >= 0; i--) { const d = new Date(today); d.setDate(d.getDate() - i); days.push({ key: d.toISOString().slice(0, 10), label: (d.getMonth() + 1) + "/" + d.getDate(), n: 0 }); }
-  const dayMap = {}; days.forEach((d) => (dayMap[d.key] = d));
-  evs.forEach((e) => { const k = (e.scanned_at || "").slice(0, 10); if (dayMap[k]) dayMap[k].n++; });
-  const maxD = Math.max(1, ...days.map((d) => d.n));
+  // resolve date window
+  const now = new Date();
+  let end = new Date(now); end.setHours(23, 59, 59, 999);
+  let start;
+  if (preset === "custom") {
+    start = fromD ? new Date(fromD + "T00:00:00") : new Date(0);
+    if (toD) { end = new Date(toD + "T23:59:59"); }
+  } else if (preset === "all") {
+    const times = all.map((e) => +new Date(e.scanned_at));
+    start = times.length ? new Date(Math.min(...times)) : new Date(now.getTime() - 13 * 86400000);
+    start.setHours(0, 0, 0, 0);
+  } else {
+    start = new Date(now); start.setDate(start.getDate() - (+preset - 1)); start.setHours(0, 0, 0, 0);
+  }
 
-  const tally = (field, fallback) => {
-    const m = {}; evs.forEach((e) => { const k = e[field] || fallback; m[k] = (m[k] || 0) + 1; });
-    return Object.entries(m).sort((a, b) => b[1] - a[1]);
-  };
+  const evs = all.filter((e) => {
+    if (codeFilter !== "all" && e.code_id !== codeFilter) return false;
+    const t = new Date(e.scanned_at);
+    return t >= start && t <= end;
+  });
+
+  const buckets = buildBuckets(start, end, evs);
+  const maxD = Math.max(1, ...buckets.map((d) => d.n));
+  const tally = (field, fb) => { const m = {}; evs.forEach((e) => { const k = e[field] || fb; m[k] = (m[k] || 0) + 1; }); return Object.entries(m).sort((a, b) => b[1] - a[1]); };
   const devices = tally("device", "Unknown");
   const browsers = tally("browser", "Unknown");
   const countries = tally("country", "—").slice(0, 6);
   const total = evs.length || 1;
-  const recent = evs.slice(0, 20);
-  const last7 = days.slice(7).reduce((a, d) => a + d.n, 0);
+  const recent = evs.slice(0, 50);
+  const rangeLabel = preset === "all" ? "All time" : preset === "custom" ? "Custom range" : "Last " + preset + " days";
+  const scopeLabel = codeFilter === "all" ? "All codes" : (nameById[codeFilter] || "Code");
+
+  function exportCSV() {
+    const head = ["Time (ISO)", "Code", "Device", "OS", "Browser", "Country", "Referrer"];
+    const rows = evs.map((e) => [new Date(e.scanned_at).toISOString(), nameById[e.code_id] || "", e.device || "", e.os || "", e.browser || "", e.country || "", e.referrer || ""]);
+    const csv = [head, ...rows].map((r) => r.map((v) => '"' + String(v).replace(/"/g, '""') + '"').join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "qr-scans.csv"; a.click();
+  }
+  function exportPDF() {
+    const w = window.open("", "_blank"); if (!w) return;
+    const rowsHtml = recent.map((e) => `<tr><td>${new Date(e.scanned_at).toLocaleString()}</td><td>${nameById[e.code_id] || "—"}</td><td>${e.device || "—"}</td><td>${(e.os || "—") + " · " + (e.browser || "—")}</td><td>${e.country || "—"}</td></tr>`).join("");
+    const devHtml = devices.map(([k, n]) => `<li>${k}: ${n} (${Math.round(n / total * 100)}%)</li>`).join("");
+    const ctyHtml = countries.map(([k, n]) => `<li>${k}: ${n}</li>`).join("");
+    w.document.write(`<html><head><title>QR Scan Report</title><style>
+      body{font-family:Arial,sans-serif;color:#1b2138;padding:28px;max-width:820px;margin:auto}
+      h1{font-size:22px;margin:0 0 4px}.sub{color:#5f6982;font-size:13px;margin-bottom:18px}
+      .kpis{display:flex;gap:24px;margin:16px 0}.kpi b{font-size:24px;display:block}
+      table{width:100%;border-collapse:collapse;margin-top:10px;font-size:12px}
+      th,td{border-bottom:1px solid #e2e7f1;padding:7px 8px;text-align:left}
+      th{color:#5f6982;text-transform:uppercase;font-size:10px}
+      .cols{display:flex;gap:40px}ul{font-size:13px;color:#333}
+      </style></head><body>
+      <h1>QR Studio — Scan Report</h1>
+      <div class="sub">${scopeLabel} · ${rangeLabel} · generated ${now.toLocaleString()}</div>
+      <div class="kpis"><div class="kpi"><b>${evs.length}</b>scans in range</div><div class="kpi"><b>${totalScans}</b>total (all time)</div></div>
+      <div class="cols"><div><h3>By device</h3><ul>${devHtml || "<li>—</li>"}</ul></div><div><h3>By country</h3><ul>${ctyHtml || "<li>—</li>"}</ul></div></div>
+      <h3>Recent scans (up to 50)</h3>
+      <table><thead><tr><th>Time</th><th>Code</th><th>Device</th><th>OS · Browser</th><th>Country</th></tr></thead><tbody>${rowsHtml || "<tr><td colspan=5>No scans</td></tr>"}</tbody></table>
+      <script>window.onload=function(){window.print()}</scr${""}ipt></body></html>`);
+    w.document.close();
+  }
+
+  const selStyle = { background: "#ffffff", border: "1px solid var(--line)", borderRadius: 10, padding: "9px 11px", color: "var(--txt)", fontFamily: "inherit", fontSize: 13.5 };
 
   return (
     <>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))", gap: 16, marginBottom: 22 }}>
-        <StatCard label="Total scans" value={totalScans.toLocaleString()} />
-        <StatCard label="Scans (last 7 days)" value={last7.toLocaleString()} />
-        <StatCard label="Logged scan events" value={evs.length.toLocaleString()} />
-        <StatCard label="Active codes" value={codes.length} />
+      <div className="card" style={{ marginBottom: 18, display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end" }}>
+        <div>
+          <label style={{ display: "block", fontSize: 12, color: "var(--soft)", marginBottom: 5 }}>Code</label>
+          <select value={codeFilter} onChange={(e) => setCodeFilter(e.target.value)} style={selStyle}>
+            <option value="all">All codes</option>
+            {codes.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        </div>
+        <div>
+          <label style={{ display: "block", fontSize: 12, color: "var(--soft)", marginBottom: 5 }}>Range</label>
+          <select value={preset} onChange={(e) => setPreset(e.target.value)} style={selStyle}>
+            <option value="7">Last 7 days</option>
+            <option value="30">Last 30 days</option>
+            <option value="90">Last 90 days</option>
+            <option value="all">All time</option>
+            <option value="custom">Custom…</option>
+          </select>
+        </div>
+        {preset === "custom" && (
+          <>
+            <div><label style={{ display: "block", fontSize: 12, color: "var(--soft)", marginBottom: 5 }}>From</label><input type="date" value={fromD} onChange={(e) => setFromD(e.target.value)} style={selStyle} /></div>
+            <div><label style={{ display: "block", fontSize: 12, color: "var(--soft)", marginBottom: 5 }}>To</label><input type="date" value={toD} onChange={(e) => setToD(e.target.value)} style={selStyle} /></div>
+          </>
+        )}
+        <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+          <button className="btn btn-ghost btn-sm" onClick={exportCSV}>⬇ CSV</button>
+          <button className="btn btn-ghost btn-sm" onClick={exportPDF}>🖨 PDF</button>
+        </div>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))", gap: 16, marginBottom: 18 }}>
+        <StatCard label={"Scans (" + rangeLabel.toLowerCase() + ")"} value={evs.length.toLocaleString()} />
+        <StatCard label="Total scans (all time)" value={totalScans.toLocaleString()} />
+        <StatCard label="Unique codes scanned" value={new Set(evs.map((e) => e.code_id)).size} />
+        <StatCard label="Viewing" value={scopeLabel} />
       </div>
 
       <div className="card" style={{ marginBottom: 18 }}>
-        <h3 style={{ fontSize: 16 }}>Scans — last 14 days</h3>
+        <h3 style={{ fontSize: 16 }}>Scans over time <span style={{ fontSize: 12, color: "var(--soft)", fontWeight: 400 }}>· {scopeLabel} · {rangeLabel}</span></h3>
         {evs.length === 0
-          ? <p style={{ color: "var(--soft)", fontSize: 13.5, marginTop: 10 }}>No scans recorded yet. Scans appear here once people scan your dynamic codes (make sure the site is publicly accessible).</p>
-          : <Bars items={days} max={maxD} />}
+          ? <p style={{ color: "var(--soft)", fontSize: 13.5, marginTop: 10 }}>No scans in this range. Scans appear once people scan your dynamic codes (the site must be publicly accessible).</p>
+          : <Bars items={buckets} max={maxD} />}
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(240px,1fr))", gap: 18, marginBottom: 18 }}>
@@ -576,8 +689,8 @@ function Analytics({ codes, scans, totalScans }) {
       </div>
 
       <div className="card">
-        <h3 style={{ fontSize: 16, marginBottom: 14 }}>Recent scans</h3>
-        {recent.length === 0 ? <p style={{ color: "var(--soft)", fontSize: 13.5 }}>No scans yet.</p> : (
+        <h3 style={{ fontSize: 16, marginBottom: 14 }}>Recent scans <span style={{ fontSize: 12, color: "var(--soft)", fontWeight: 400 }}>· {evs.length} in range</span></h3>
+        {recent.length === 0 ? <p style={{ color: "var(--soft)", fontSize: 13.5 }}>No scans in this range.</p> : (
           <table>
             <thead><tr><th>Time</th><th>Code</th><th>Device</th><th>OS · Browser</th><th>Country</th></tr></thead>
             <tbody>
