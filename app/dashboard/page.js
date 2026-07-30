@@ -32,6 +32,7 @@ export default function Dashboard() {
   const [plans, setPlans] = useState([]);
   const [codes, setCodes] = useState([]);
   const [txns, setTxns] = useState([]);
+  const [scans, setScans] = useState([]);
   const [toast, setToast] = useState("");
   const [loading, setLoading] = useState(true);
 
@@ -39,13 +40,14 @@ export default function Dashboard() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { router.push("/login"); return; }
     await supabase.rpc("qr_ensure_profile", { p_name: null });
-    const [{ data: prof }, { data: pl }, { data: cs }, { data: tx }] = await Promise.all([
+    const [{ data: prof }, { data: pl }, { data: cs }, { data: tx }, { data: sc }] = await Promise.all([
       supabase.from("qr_profiles").select("*").eq("id", user.id).single(),
       supabase.from("qr_plans").select("*").order("sort"),
       supabase.from("qs_codes").select("*").order("created_at", { ascending: false }),
       supabase.from("qr_transactions").select("*").order("created_at", { ascending: false }),
+      supabase.from("qs_scans").select("*").order("scanned_at", { ascending: false }).limit(1000),
     ]);
-    setProfile(prof); setPlans(pl || []); setCodes(cs || []); setTxns(tx || []);
+    setProfile(prof); setPlans(pl || []); setCodes(cs || []); setTxns(tx || []); setScans(sc || []);
     setLoading(false);
   }, [router, supabase]);
 
@@ -91,7 +93,7 @@ export default function Dashboard() {
           {tab === "create" && <Create supabase={supabase} profile={profile} onSaved={() => { load(); flash("✅ QR saved — 1 credit used"); setTab("codes"); }} onNoCredit={() => setTab("billing")} flash={flash} />}
           {tab === "codes" && <Codes codes={codes} setTab={setTab} supabase={supabase} onChange={load} flash={flash} />}
           {tab === "billing" && <Billing supabase={supabase} profile={profile} plans={plans} txns={txns} onChange={load} flash={flash} />}
-          {tab === "analytics" && <Analytics codes={codes} totalScans={totalScans} />}
+          {tab === "analytics" && <Analytics codes={codes} scans={scans} totalScans={totalScans} />}
         </div>
       </div>
       <div className={"toast" + (toast ? " show" : "")}>{toast}</div>
@@ -501,25 +503,96 @@ function Billing({ supabase, profile, plans, txns, onChange, flash }) {
   );
 }
 
-function Analytics({ codes, totalScans }) {
-  const top = [...codes].sort((a, b) => b.scans - a.scans).slice(0, 6);
-  const max = Math.max(1, ...top.map((c) => c.scans));
+function Bars({ items, max }) {
+  return (
+    <div style={{ display: "flex", alignItems: "flex-end", gap: 6, height: 140, marginTop: 6 }}>
+      {items.map((d, i) => (
+        <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+          <div title={d.n + " scans"} style={{ width: "100%", height: Math.max(3, (d.n / max) * 118), background: "linear-gradient(180deg,var(--brand),var(--brand2))", borderRadius: "5px 5px 0 0" }} />
+          <span style={{ fontSize: 9.5, color: "var(--soft)" }}>{d.label}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+function Breakdown({ title, rows, total }) {
+  const cols = ["#6c8cff", "#0ea371", "#b7791f", "#e5484d", "#7c5cff", "#5f6982"];
+  return (
+    <div className="card">
+      <h3 style={{ fontSize: 16, marginBottom: 14 }}>{title}</h3>
+      {rows.length === 0 ? <p style={{ color: "var(--soft)", fontSize: 13.5 }}>No data yet.</p> : rows.map(([k, n], i) => (
+        <div key={k} style={{ marginBottom: 10 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 4 }}><span>{k}</span><b>{n} · {Math.round((n / total) * 100)}%</b></div>
+          <div style={{ background: "var(--card2)", borderRadius: 6, height: 8 }}><div style={{ width: (n / total * 100) + "%", height: "100%", borderRadius: 6, background: cols[i % cols.length] }} /></div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function Analytics({ codes, scans, totalScans }) {
+  const nameById = {}; codes.forEach((c) => (nameById[c.id] = c.name));
+  const evs = scans || [];
+
+  // last 14 days
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const days = [];
+  for (let i = 13; i >= 0; i--) { const d = new Date(today); d.setDate(d.getDate() - i); days.push({ key: d.toISOString().slice(0, 10), label: (d.getMonth() + 1) + "/" + d.getDate(), n: 0 }); }
+  const dayMap = {}; days.forEach((d) => (dayMap[d.key] = d));
+  evs.forEach((e) => { const k = (e.scanned_at || "").slice(0, 10); if (dayMap[k]) dayMap[k].n++; });
+  const maxD = Math.max(1, ...days.map((d) => d.n));
+
+  const tally = (field, fallback) => {
+    const m = {}; evs.forEach((e) => { const k = e[field] || fallback; m[k] = (m[k] || 0) + 1; });
+    return Object.entries(m).sort((a, b) => b[1] - a[1]);
+  };
+  const devices = tally("device", "Unknown");
+  const browsers = tally("browser", "Unknown");
+  const countries = tally("country", "—").slice(0, 6);
+  const total = evs.length || 1;
+  const recent = evs.slice(0, 20);
+  const last7 = days.slice(7).reduce((a, d) => a + d.n, 0);
+
   return (
     <>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))", gap: 16, marginBottom: 22 }}>
         <StatCard label="Total scans" value={totalScans.toLocaleString()} />
+        <StatCard label="Scans (last 7 days)" value={last7.toLocaleString()} />
+        <StatCard label="Logged scan events" value={evs.length.toLocaleString()} />
         <StatCard label="Active codes" value={codes.length} />
-        <StatCard label="Avg scans / code" value={codes.length ? Math.round(totalScans / codes.length) : 0} />
-        <StatCard label="Dynamic codes" value={codes.filter((c) => c.dynamic).length} />
       </div>
+
+      <div className="card" style={{ marginBottom: 18 }}>
+        <h3 style={{ fontSize: 16 }}>Scans — last 14 days</h3>
+        {evs.length === 0
+          ? <p style={{ color: "var(--soft)", fontSize: 13.5, marginTop: 10 }}>No scans recorded yet. Scans appear here once people scan your dynamic codes (make sure the site is publicly accessible).</p>
+          : <Bars items={days} max={maxD} />}
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(240px,1fr))", gap: 18, marginBottom: 18 }}>
+        <Breakdown title="By device" rows={devices} total={total} />
+        <Breakdown title="By browser" rows={browsers} total={total} />
+        <Breakdown title="By country" rows={countries} total={total} />
+      </div>
+
       <div className="card">
-        <h3 style={{ fontSize: 16, marginBottom: 16 }}>Top codes by scans</h3>
-        {top.length === 0 ? <p style={{ color: "var(--soft)" }}>No scan data yet.</p> : top.map((c) => (
-          <div key={c.id} style={{ marginBottom: 12 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13.5, marginBottom: 5 }}><span>{c.name}</span><b>{c.scans}</b></div>
-            <div style={{ background: "var(--card2)", borderRadius: 6, height: 10 }}><div style={{ width: (c.scans / max * 100) + "%", height: "100%", borderRadius: 6, background: "linear-gradient(90deg,var(--brand),var(--accent))" }} /></div>
-          </div>
-        ))}
+        <h3 style={{ fontSize: 16, marginBottom: 14 }}>Recent scans</h3>
+        {recent.length === 0 ? <p style={{ color: "var(--soft)", fontSize: 13.5 }}>No scans yet.</p> : (
+          <table>
+            <thead><tr><th>Time</th><th>Code</th><th>Device</th><th>OS · Browser</th><th>Country</th></tr></thead>
+            <tbody>
+              {recent.map((e) => (
+                <tr key={e.id}>
+                  <td style={{ color: "var(--soft)" }}>{new Date(e.scanned_at).toLocaleString()}</td>
+                  <td><b>{nameById[e.code_id] || "—"}</b></td>
+                  <td>{e.device || "—"}</td>
+                  <td style={{ color: "var(--soft)" }}>{(e.os || "—") + " · " + (e.browser || "—")}</td>
+                  <td>{e.country || "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </div>
     </>
   );
