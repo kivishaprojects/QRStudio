@@ -94,7 +94,7 @@ export default function Home() {
       </section>
 
       <footer style={{ borderTop: "1px solid var(--line)", padding: "40px 0", textAlign: "center", color: "var(--soft)", fontSize: 13 }}>
-        © 2026 QR Studio · Built with Next.js, Supabase &amp; Vercel · Made in India 🇮🇳
+        © 2026 QR Studio · Developed By : Jupiter Technologies : Made in India
       </footer>
     </main>
   );
