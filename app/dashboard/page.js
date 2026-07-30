@@ -31,6 +31,9 @@ const TYPES = [
   { id: "upi", icon: "💳", name: "UPI", dyn: false, fields: [{ k: "vpa", label: "UPI ID", ph: "name@okbank" }, { k: "pn", label: "Payee", ph: "Vishal" }, { k: "am", label: "Amount", ph: "500" }], build: (v) => `upi://pay?pa=${v.vpa || ""}&pn=${encodeURIComponent(v.pn || "")}${v.am ? "&am=" + v.am : ""}&cu=INR` },
   { id: "vcard", icon: "👤", name: "Contact", dyn: false, fields: [{ k: "fn", label: "Name", ph: "Vishal H Raval" }, { k: "tel", label: "Phone", ph: "+91..." }, { k: "email", label: "Email", ph: "a@b.com" }, { k: "org", label: "Company (optional)", ph: "Jupiter Technologies" }], build: (v) => `BEGIN:VCARD\nVERSION:3.0\nFN:${v.fn || ""}\nTEL:${v.tel || ""}\nEMAIL:${v.email || ""}${v.org ? "\nORG:" + v.org : ""}\nEND:VCARD` },
   { id: "event", icon: "📅", name: "Event", dyn: false, fields: [{ k: "title", label: "Title", ph: "Product launch" }, { k: "loc", label: "Location", ph: "Ahmedabad" }, { k: "start", label: "Starts", type: "datetime-local" }, { k: "end", label: "Ends", type: "datetime-local" }], build: (v) => `BEGIN:VEVENT\nSUMMARY:${v.title || ""}\nLOCATION:${v.loc || ""}\nDTSTART:${vcalTime(v.start)}\nDTEND:${vcalTime(v.end)}\nEND:VEVENT` },
+  { id: "linkbio", icon: "🔗", name: "Link Page", dyn: true, smart: true, build: (v) => JSON.stringify({ kind: "linkbio", title: v.title || "", subtitle: v.subtitle || "", links: (v.links || []).filter((l) => l && (l.url || "").trim()) }) },
+  { id: "menu", icon: "🍽️", name: "Menu", dyn: true, smart: true, build: (v) => JSON.stringify({ kind: "menu", title: v.title || "", note: v.note || "", sections: (v.sections || []).map((s) => ({ name: s.name || "", items: (s.items || []).filter((i) => i && (i.name || "").trim()) })).filter((s) => s.items.length) }) },
+  { id: "review", icon: "⭐", name: "Google Review", dyn: true, smart: true, build: (v) => JSON.stringify({ kind: "review", business: v.business || "", url: v.url || "", subtitle: v.subtitle || "" }) },
 ];
 
 export default function Dashboard() {
@@ -642,6 +645,72 @@ function loadLogoFile(file, setter) {
   r.readAsDataURL(file);
 }
 
+// Editors for hosted "smart page" QR types (Link Page, Menu, Google Review).
+function SmartEditor({ type, values, setValues }) {
+  const set = (patch) => setValues({ ...values, ...patch });
+  const inp = { width: "100%", background: "#fff", border: "1px solid var(--line)", borderRadius: 8, padding: "9px 11px", fontSize: 14, fontFamily: "inherit" };
+
+  if (type === "review") {
+    return (
+      <>
+        <div className="field"><label>Business name</label><input style={inp} value={values.business || ""} onChange={(e) => set({ business: e.target.value })} placeholder="Spice Route Café" /></div>
+        <div className="field"><label>Google review link</label><input style={inp} value={values.url || ""} onChange={(e) => set({ url: e.target.value })} placeholder="https://g.page/r/…/review" />
+          <div style={{ fontSize: 11.5, color: "var(--soft)", marginTop: 4 }}>Google Business Profile → “Ask for reviews” → copy your short review link (g.page/r/…).</div>
+        </div>
+        <div className="field"><label>Prompt text (optional)</label><input style={inp} value={values.subtitle || ""} onChange={(e) => set({ subtitle: e.target.value })} placeholder="Loved your visit? Leave us a review!" /></div>
+      </>
+    );
+  }
+
+  if (type === "linkbio") {
+    const links = values.links && values.links.length ? values.links : [{ label: "", url: "" }];
+    const setLink = (i, patch) => set({ links: links.map((l, j) => (j === i ? { ...l, ...patch } : l)) });
+    return (
+      <>
+        <div className="field"><label>Page title</label><input style={inp} value={values.title || ""} onChange={(e) => set({ title: e.target.value })} placeholder="Spice Route Café" /></div>
+        <div className="field"><label>Subtitle (optional)</label><input style={inp} value={values.subtitle || ""} onChange={(e) => set({ subtitle: e.target.value })} placeholder="Fine dining • Ahmedabad" /></div>
+        <label style={{ fontSize: 12.5, color: "var(--soft)", fontWeight: 500 }}>Links</label>
+        {links.map((l, i) => (
+          <div key={i} style={{ display: "flex", gap: 6, marginBottom: 8, marginTop: 6 }}>
+            <input style={{ ...inp, flex: "0 0 34%" }} value={l.label || ""} onChange={(e) => setLink(i, { label: e.target.value })} placeholder="Label" />
+            <input style={{ ...inp, flex: 1 }} value={l.url || ""} onChange={(e) => setLink(i, { url: e.target.value })} placeholder="https://…" />
+            <button type="button" className="btn btn-ghost btn-sm" onClick={() => set({ links: links.filter((_, j) => j !== i) })}>✕</button>
+          </div>
+        ))}
+        <button type="button" className="btn btn-ghost btn-sm" onClick={() => set({ links: [...links, { label: "", url: "" }] })}>+ Add link</button>
+      </>
+    );
+  }
+
+  // menu
+  const sections = values.sections && values.sections.length ? values.sections : [{ name: "", items: [{ name: "", price: "" }] }];
+  const setSec = (si, patch) => set({ sections: sections.map((s, j) => (j === si ? { ...s, ...patch } : s)) });
+  const setItem = (si, ii, patch) => setSec(si, { items: (sections[si].items || []).map((it, j) => (j === ii ? { ...it, ...patch } : it)) });
+  return (
+    <>
+      <div className="field"><label>Menu title</label><input style={inp} value={values.title || ""} onChange={(e) => set({ title: e.target.value })} placeholder="Spice Route Café — Menu" /></div>
+      <div className="field"><label>Note (optional)</label><input style={inp} value={values.note || ""} onChange={(e) => set({ note: e.target.value })} placeholder="All prices in ₹ · GST included" /></div>
+      {sections.map((s, si) => (
+        <div key={si} style={{ border: "1px solid var(--line)", borderRadius: 10, padding: 12, marginBottom: 10 }}>
+          <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+            <input style={{ ...inp, flex: 1, fontWeight: 600 }} value={s.name || ""} onChange={(e) => setSec(si, { name: e.target.value })} placeholder="Section (Starters)" />
+            <button type="button" className="btn btn-ghost btn-sm" onClick={() => set({ sections: sections.filter((_, j) => j !== si) })}>Remove</button>
+          </div>
+          {(s.items || []).map((it, ii) => (
+            <div key={ii} style={{ display: "flex", gap: 6, marginBottom: 6 }}>
+              <input style={{ ...inp, flex: 1 }} value={it.name || ""} onChange={(e) => setItem(si, ii, { name: e.target.value })} placeholder="Item name" />
+              <input style={{ ...inp, flex: "0 0 90px" }} value={it.price || ""} onChange={(e) => setItem(si, ii, { price: e.target.value })} placeholder="₹ price" />
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => setSec(si, { items: (s.items || []).filter((_, j) => j !== ii) })}>✕</button>
+            </div>
+          ))}
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => setSec(si, { items: [...(s.items || []), { name: "", price: "" }] })}>+ Add item</button>
+        </div>
+      ))}
+      <button type="button" className="btn btn-ghost btn-sm" onClick={() => set({ sections: [...sections, { name: "", items: [{ name: "", price: "" }] }] })}>+ Add section</button>
+    </>
+  );
+}
+
 function Create({ supabase, profile, onSaved, onNoCredit, flash }) {
   const [type, setType] = useState("url");
   const [dynamic, setDynamic] = useState(true);
@@ -658,8 +727,11 @@ function Create({ supabase, profile, onSaved, onNoCredit, flash }) {
   const t = TYPES.find((x) => x.id === type);
   const data = t.build(values) || " ";
   const noCredit = (profile?.credits ?? 0) <= 0;
+  const isSmart = !!t.smart;
+  // Smart pages are always dynamic; the QR preview shows the short link, not the JSON.
+  const previewData = isSmart ? `${SITE_URL}/r/xxxxxxx` : data;
 
-  const brandOpts = { qrData: data, fg, bg, dot, topText, bottomText, logoImg: topLogo.img, centerLogoImg: centerLogo.img };
+  const brandOpts = { qrData: previewData, fg, bg, dot, topText, bottomText, logoImg: topLogo.img, centerLogoImg: centerLogo.img };
   function buildStyle() {
     return { fg, bg, dot, brandTop: topText, brandBottom: bottomText, logo: topLogo.data || null, centerLogo: centerLogo.data || null };
   }
@@ -668,7 +740,7 @@ function Create({ supabase, profile, onSaved, onNoCredit, flash }) {
     if (noCredit) { onNoCredit(); return; }
     setSaving(true);
     const { error } = await supabase.rpc("qr_save_code", {
-      p_name: name, p_type: t.name, p_content: data, p_style: buildStyle(), p_dynamic: dynamic,
+      p_name: name, p_type: t.name, p_content: data, p_style: buildStyle(), p_dynamic: isSmart ? true : dynamic,
     });
     setSaving(false);
     if (error) { flash(error.message === "no_credits" ? "Out of credits — upgrade to continue" : "Error: " + error.message); if (error.message && error.message.includes("credit")) onNoCredit(); return; }
@@ -692,22 +764,32 @@ function Create({ supabase, profile, onSaved, onNoCredit, flash }) {
               <div key={x.id} onClick={() => { setType(x.id); setValues({}); setDynamic(x.dyn); }} style={{ display: "flex", gap: 6, alignItems: "center", padding: "8px 12px", borderRadius: 10, fontSize: 13, fontWeight: 500, cursor: "pointer", border: "1px solid var(--line)", color: type === x.id ? "#fff" : "var(--soft)", background: type === x.id ? "linear-gradient(135deg,var(--brand),var(--brand2))" : "var(--card2)" }}>{x.icon} {x.name}</div>
             ))}
           </div>
-          {t.fields.map((f) => (
-            <div className="field" key={f.k}>
-              <label>{f.label}</label>
-              {f.ta ? <textarea value={values[f.k] || ""} placeholder={f.ph} onChange={(e) => setValues({ ...values, [f.k]: e.target.value })} />
-                : <input type={f.type || "text"} value={values[f.k] ?? (f.val || "")} placeholder={f.ph} onChange={(e) => setValues({ ...values, [f.k]: e.target.value })} />}
+          {isSmart ? (
+            <SmartEditor type={type} values={values} setValues={setValues} />
+          ) : (
+            t.fields.map((f) => (
+              <div className="field" key={f.k}>
+                <label>{f.label}</label>
+                {f.ta ? <textarea value={values[f.k] || ""} placeholder={f.ph} onChange={(e) => setValues({ ...values, [f.k]: e.target.value })} />
+                  : <input type={f.type || "text"} value={values[f.k] ?? (f.val || "")} placeholder={f.ph} onChange={(e) => setValues({ ...values, [f.k]: e.target.value })} />}
+              </div>
+            ))
+          )}
+          {isSmart ? (
+            <div style={{ marginTop: 6, padding: "10px 12px", background: "rgba(46,162,77,.1)", border: "1px solid var(--line)", borderRadius: 10, fontSize: 12.5, color: "var(--soft)" }}>
+              ✓ This is a hosted smart page — always dynamic, so you can edit it anytime and track scans.
             </div>
-          ))}
-          <label style={{ display: "flex", alignItems: "flex-start", gap: 9, marginTop: 6, padding: "10px 12px", background: "var(--card2)", border: "1px solid var(--line)", borderRadius: 10, cursor: "pointer" }}>
-            <input type="checkbox" checked={dynamic} onChange={(e) => setDynamic(e.target.checked)} style={{ marginTop: 3 }} />
-            <span style={{ fontSize: 13 }}>
-              <b>Dynamic QR</b> — track scans &amp; edit the destination later.
-              <span style={{ display: "block", color: "var(--soft)", fontSize: 12, marginTop: 2 }}>
-                {dynamic ? "Scans route through a short link so you get analytics and can change the content anytime." : "Static: the content is encoded directly. Works offline for native actions (WiFi join, save contact), but scans aren't tracked and it can't be edited."}
+          ) : (
+            <label style={{ display: "flex", alignItems: "flex-start", gap: 9, marginTop: 6, padding: "10px 12px", background: "var(--card2)", border: "1px solid var(--line)", borderRadius: 10, cursor: "pointer" }}>
+              <input type="checkbox" checked={dynamic} onChange={(e) => setDynamic(e.target.checked)} style={{ marginTop: 3 }} />
+              <span style={{ fontSize: 13 }}>
+                <b>Dynamic QR</b> — track scans &amp; edit the destination later.
+                <span style={{ display: "block", color: "var(--soft)", fontSize: 12, marginTop: 2 }}>
+                  {dynamic ? "Scans route through a short link so you get analytics and can change the content anytime." : "Static: the content is encoded directly. Works offline for native actions (WiFi join, save contact), but scans aren't tracked and it can't be edited."}
+                </span>
               </span>
-            </span>
-          </label>
+            </label>
+          )}
         </div>
         <div className="card" style={{ marginTop: 18 }}>
           <h3 style={{ fontSize: 16, marginBottom: 14 }}>Style</h3>
@@ -1309,7 +1391,23 @@ function Analytics({ codes, scans, totalScans, initialCode }) {
   const tally = (field, fb) => { const m = {}; evs.forEach((e) => { const k = e[field] || fb; m[k] = (m[k] || 0) + 1; }); return Object.entries(m).sort((a, b) => b[1] - a[1]); };
   const devices = tally("device", "Unknown");
   const browsers = tally("browser", "Unknown");
+  const oss = tally("os", "Unknown");
   const countries = tally("country", "—").slice(0, 6);
+  const refs = (() => {
+    const m = {};
+    evs.forEach((e) => {
+      let h = "Direct / QR scan";
+      if (e.referrer) { try { h = new URL(e.referrer).hostname.replace(/^www\./, ""); } catch (_) { h = e.referrer; } }
+      m[h] = (m[h] || 0) + 1;
+    });
+    return Object.entries(m).sort((a, b) => b[1] - a[1]).slice(0, 6);
+  })();
+  const hours = Array.from({ length: 24 }, () => 0);
+  evs.forEach((e) => { hours[new Date(e.scanned_at).getHours()]++; });
+  const maxH = Math.max(1, ...hours);
+  const peakHour = evs.length ? hours.indexOf(Math.max(...hours)) : -1;
+  const hourLabel = (h) => (h < 0 ? "—" : (h % 12 === 0 ? 12 : h % 12) + (h < 12 ? "am" : "pm"));
+  const busiest = buckets.reduce((a, b) => (b.n > (a ? a.n : -1) ? b : a), null);
   const total = evs.length || 1;
   const recent = evs.slice(0, 50);
   const rangeLabel = preset === "all" ? "All time" : preset === "custom" ? "Custom range" : "Last " + preset + " days";
@@ -1380,11 +1478,12 @@ function Analytics({ codes, scans, totalScans, initialCode }) {
         </div>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))", gap: 16, marginBottom: 18 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: 16, marginBottom: 18 }}>
         <StatCard label={"Scans (" + rangeLabel.toLowerCase() + ")"} value={evs.length.toLocaleString()} />
         <StatCard label="Total scans (all time)" value={totalScans.toLocaleString()} />
         <StatCard label="Unique codes scanned" value={new Set(evs.map((e) => e.code_id)).size} />
-        <StatCard label="Viewing" value={scopeLabel} />
+        <StatCard label="Peak hour" value={hourLabel(peakHour)} />
+        <StatCard label="Busiest day" value={busiest && busiest.n ? busiest.label : "—"} />
       </div>
 
       <div className="card" style={{ marginBottom: 18 }}>
@@ -1394,10 +1493,27 @@ function Analytics({ codes, scans, totalScans, initialCode }) {
           : <Bars items={buckets} max={maxD} />}
       </div>
 
+      {evs.length > 0 && (
+        <div className="card" style={{ marginBottom: 18 }}>
+          <h3 style={{ fontSize: 16, marginBottom: 4 }}>Scans by hour of day</h3>
+          <div style={{ fontSize: 12, color: "var(--soft)", marginBottom: 12 }}>When your codes get scanned (local time)</div>
+          <div style={{ display: "flex", alignItems: "flex-end", gap: 3, height: 90 }}>
+            {hours.map((n, h) => (
+              <div key={h} title={hourLabel(h) + ": " + n} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
+                <div style={{ width: "100%", height: Math.max(2, (n / maxH) * 70), background: h === peakHour ? "var(--saffron)" : "linear-gradient(180deg,var(--brand2),var(--brand))", borderRadius: "3px 3px 0 0" }} />
+                {h % 3 === 0 && <span style={{ fontSize: 9, color: "var(--soft)" }}>{h}</span>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(240px,1fr))", gap: 18, marginBottom: 18 }}>
         <Breakdown title="By device" rows={devices} total={total} />
+        <Breakdown title="By OS" rows={oss} total={total} />
         <Breakdown title="By browser" rows={browsers} total={total} />
         <Breakdown title="By country" rows={countries} total={total} />
+        <Breakdown title="Top referrers" rows={refs} total={total} />
       </div>
 
       <div className="card">

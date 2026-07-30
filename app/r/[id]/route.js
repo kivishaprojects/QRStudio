@@ -48,9 +48,33 @@ ${bodyInner}
 </div></body></html>`;
 }
 
+// Hosted "smart page" renderers (Link Page, Menu, Google Review).
+function smartPage(cfg) {
+  if (cfg.kind === "linkbio") {
+    const links = (cfg.links || []).map((l) => `<a class="btn" style="background:#fff;color:var(--brand);border:1px solid var(--line)" href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.label || l.url)}</a>`).join("");
+    return page(`<h1 style="text-align:center">${esc(cfg.title) || "Links"}</h1>${cfg.subtitle ? `<p class="sub" style="text-align:center">${esc(cfg.subtitle)}</p>` : ""}${links || '<p class="sub">No links yet.</p>'}`);
+  }
+  if (cfg.kind === "review") {
+    return page(`<h1 style="text-align:center">${esc(cfg.business) || "Rate us"}</h1>
+      <div style="text-align:center;font-size:30px;color:#f5b301;margin:6px 0 4px">★★★★★</div>
+      <p class="sub" style="text-align:center">${esc(cfg.subtitle) || "We'd love your feedback on Google."}</p>
+      ${cfg.url ? `<a class="btn" href="${esc(cfg.url)}" target="_blank" rel="noopener">Leave a Google review</a>` : ""}`);
+  }
+  if (cfg.kind === "menu") {
+    const secs = (cfg.sections || []).map((s) => {
+      const items = (s.items || []).map((it) => `<div class="row"><span class="v" style="font-weight:500;text-align:left">${esc(it.name)}${it.desc ? `<div style="font-size:12px;color:var(--soft);font-weight:400">${esc(it.desc)}</div>` : ""}</span><span class="k" style="white-space:nowrap">${it.price ? "₹" + esc(it.price) : ""}</span></div>`).join("");
+      return `${s.name ? `<h2 style="font-size:15px;margin:16px 0 4px;color:var(--brand)">${esc(s.name)}</h2>` : ""}${items}`;
+    }).join("");
+    return page(`<h1>${esc(cfg.title) || "Menu"}</h1>${cfg.note ? `<p class="sub">${esc(cfg.note)}</p>` : ""}${secs || '<p class="sub">Menu coming soon.</p>'}`);
+  }
+  return page(`<h1>India QR Code</h1>`);
+}
+
 // Renders a friendly landing page for non-URL dynamic content.
 function landing(content) {
   const c = content || "";
+  // Hosted smart pages (stored as JSON config)
+  try { const cfg = JSON.parse(c); if (cfg && cfg.kind) return smartPage(cfg); } catch (_) {}
   // WiFi
   if (/^WIFI:/i.test(c)) {
     const g = (re) => (c.match(re) || [, ""])[1];

@@ -15,6 +15,7 @@ export const FOOTER_LINKS = [
   ["/contact", "Contact Us"],
   ["/terms", "Terms & Conditions"],
   ["/refunds", "Refunds & Cancellations"],
+  ["/privacy", "Privacy Policy"],
 ];
 
 export default function LegalLayout({ title, updated, children }) {

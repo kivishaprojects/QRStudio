@@ -7,6 +7,7 @@ export default function sitemap() {
     { url: `${base}/contact`, lastModified: now, changeFrequency: "monthly", priority: 0.6 },
     { url: `${base}/terms`, lastModified: now, changeFrequency: "yearly", priority: 0.4 },
     { url: `${base}/refunds`, lastModified: now, changeFrequency: "yearly", priority: 0.4 },
+    { url: `${base}/privacy`, lastModified: now, changeFrequency: "yearly", priority: 0.4 },
     { url: `${base}/login`, lastModified: now, changeFrequency: "monthly", priority: 0.5 },
   ];
 }

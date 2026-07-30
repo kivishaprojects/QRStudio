@@ -176,6 +176,20 @@ export default function Admin() {
   paidOrders.forEach((o) => { const d = new Date(o.paid_at || o.created_at); const k = d.getFullYear() + "-" + (d.getMonth() + 1); if (mmap[k]) mmap[k].n += o.amount || 0; });
   const maxM = Math.max(1, ...months.map((m) => m.n));
 
+  // Business metrics
+  const conversion = users.length ? (paying / users.length) * 100 : 0;
+  const arpu = paying ? Math.round(paidRevenue / paying) : 0;
+  const aov = paidOrders.length ? Math.round(paidRevenue / paidOrders.length) : 0;
+  const thisKey = now.getFullYear() + "-" + (now.getMonth() + 1);
+  const prevD = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const prevKey = prevD.getFullYear() + "-" + (prevD.getMonth() + 1);
+  const revThisMonth = mmap[thisKey] ? mmap[thisKey].n : 0;
+  const revPrevMonth = mmap[prevKey] ? mmap[prevKey].n : 0;
+  const momGrowth = revPrevMonth ? ((revThisMonth - revPrevMonth) / revPrevMonth) * 100 : 0;
+  const newUsers30 = users.filter((u) => now - new Date(u.created_at) < 30 * 864e5).length;
+  const activeCodes = codes.filter((c) => c.status !== "hold").length;
+  const totalScansAll = codes.reduce((a, c) => a + (c.scans || 0), 0);
+
   const RATE = Number((data.settings && data.settings.gst_rate) != null ? data.settings.gst_rate : 18);
   const bill = (o) => taxBreakup(o.amount, RATE, o && o.tax_type);
   const itemLabel = (o) => (o.kind === "plan" ? (o.plan || "plan") + " package" : (o.qty || "") + " addon credits");
@@ -268,13 +282,34 @@ export default function Admin() {
 
         {tab === "overview" && (
           <>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))", gap: 16, marginBottom: 20 }}>
-              <K label="Total users" v={users.length} />
-              <K label="Paying users" v={paying} />
-              <K label="Free-plan users" v={users.filter((u) => u.plan === "free").length} />
-              <K label="Revenue (Cashfree)" v={"₹" + paidRevenue.toLocaleString()} />
-              <K label="QR codes" v={codes.length} />
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: 14, marginBottom: 16 }}>
+              <K label="Total revenue" v={"₹" + paidRevenue.toLocaleString()} />
+              <K label="Revenue this month" v={"₹" + revThisMonth.toLocaleString()} sub={revPrevMonth ? (momGrowth >= 0 ? "▲ " : "▼ ") + Math.abs(momGrowth).toFixed(0) + "% vs last month" : "—"} subColor={momGrowth >= 0 ? "var(--accent)" : "var(--danger)"} />
+              <K label="Paying users" v={paying} sub={conversion.toFixed(1) + "% conversion"} />
+              <K label="ARPU" v={"₹" + arpu.toLocaleString()} sub="per paying user" />
+              <K label="Avg order value" v={"₹" + aov.toLocaleString()} />
             </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: 14, marginBottom: 20 }}>
+              <K label="Total users" v={users.length} sub={"+" + newUsers30 + " in 30 days"} subColor="var(--accent)" />
+              <K label="Free-plan users" v={users.filter((u) => u.plan === "free").length} />
+              <K label="QR codes" v={codes.length} sub={activeCodes + " active"} />
+              <K label="Total scans" v={totalScansAll.toLocaleString()} />
+              <K label="Paid orders" v={paidOrders.length} />
+            </div>
+
+            <div className="card" style={{ marginBottom: 18 }}>
+              <h3 style={{ fontSize: 16, marginBottom: 4 }}>Revenue trend</h3>
+              <div style={{ fontSize: 12, color: "var(--soft)", marginBottom: 12 }}>Paid orders, last 12 months</div>
+              <div style={{ display: "flex", alignItems: "flex-end", gap: 6, height: 120 }}>
+                {months.map((m, i) => (
+                  <div key={i} title={"₹" + m.n.toLocaleString()} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+                    <div style={{ width: "100%", height: Math.max(3, (m.n / maxM) * 90), background: "linear-gradient(180deg,var(--brand2),var(--brand))", borderRadius: "5px 5px 0 0" }} />
+                    <span style={{ fontSize: 9.5, color: "var(--soft)" }}>{m.label}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
             <div className="card">
               <h3 style={{ fontSize: 16, marginBottom: 14 }}>Plan distribution</h3>
               {dist.map((d) => (
@@ -577,8 +612,8 @@ export default function Admin() {
   );
 }
 
-function K({ label, v }) {
-  return <div className="card"><div style={{ fontSize: 13, color: "var(--soft)" }}>{label}</div><div style={{ fontFamily: "'Plus Jakarta Sans'", fontSize: 28, fontWeight: 800, marginTop: 8 }}>{v}</div></div>;
+function K({ label, v, sub, subColor }) {
+  return <div className="card"><div style={{ fontSize: 13, color: "var(--soft)" }}>{label}</div><div style={{ fontFamily: "'Plus Jakarta Sans'", fontSize: 26, fontWeight: 800, marginTop: 8 }}>{v}</div>{sub && <div style={{ fontSize: 11.5, color: subColor || "var(--soft)", marginTop: 4, fontWeight: 600 }}>{sub}</div>}</div>;
 }
 
 // Step-up challenge shown when an admin with 2FA hasn't verified this session.

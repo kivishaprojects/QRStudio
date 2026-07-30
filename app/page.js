@@ -168,6 +168,7 @@ export default function Home() {
           <Link href="/contact" style={{ color: "var(--soft)" }}>Contact Us</Link>
           <Link href="/terms" style={{ color: "var(--soft)" }}>Terms &amp; Conditions</Link>
           <Link href="/refunds" style={{ color: "var(--soft)" }}>Refunds &amp; Cancellations</Link>
+          <Link href="/privacy" style={{ color: "var(--soft)" }}>Privacy Policy</Link>
           <Link href="/scan" style={{ color: "var(--soft)" }}>Scan</Link>
         </div>
         © 2026 India QR Code · Developed By : Jupiter Technologies · Made in India 🇮🇳
