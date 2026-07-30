@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabaseBrowser } from "../../lib/supabaseBrowser";
 import { SITE_URL } from "../../lib/supabaseConfig";
+import { taxBreakup } from "../../lib/gst";
 
 export default function Admin() {
   const router = useRouter();
@@ -159,14 +160,14 @@ export default function Admin() {
   const maxM = Math.max(1, ...months.map((m) => m.n));
 
   const RATE = Number((data.settings && data.settings.gst_rate) != null ? data.settings.gst_rate : 18);
-  const gstOf = (gross) => { const g = Number(gross) || 0; const taxable = +(g / (1 + RATE / 100)).toFixed(2); return { gross: g, taxable, gst: +(g - taxable).toFixed(2) }; };
+  const bill = (o) => taxBreakup(o.amount, RATE, o && o.tax_type);
   const itemLabel = (o) => (o.kind === "plan" ? (o.plan || "plan") + " package" : (o.qty || "") + " addon credits");
 
   function exportGstCsv() {
-    const head = ["Invoice No", "Invoice Date", "Customer", "Item", "GST Rate %", "Taxable Value", "CGST", "SGST", "Total (incl GST)", "Order ID"];
+    const head = ["Invoice No", "Invoice Date", "Customer", "GSTIN", "Place of supply", "Item", "GST Rate %", "Taxable Value", "IGST", "CGST", "SGST", "Total (incl GST)", "Order ID"];
     const rows = paidOrders.map((o) => {
-      const b = gstOf(o.amount); const half = +(b.gst / 2).toFixed(2);
-      return [o.invoice_no || "", new Date(o.paid_at || o.created_at).toISOString().slice(0, 10), emailById[o.user_id] || "", itemLabel(o), RATE, b.taxable, half, half, b.gross, o.id];
+      const b = bill(o);
+      return [o.invoice_no || "", new Date(o.paid_at || o.created_at).toISOString().slice(0, 10), emailById[o.user_id] || "", o.buyer_gstin || "", o.buyer_state || "", itemLabel(o), RATE, b.taxable, b.igstAmt, b.cgst, b.sgst, b.gross, o.id];
     });
     const csv = [head, ...rows].map((r) => r.map((v) => '"' + String(v).replace(/"/g, '""') + '"').join(",")).join("\n");
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
@@ -176,7 +177,7 @@ export default function Admin() {
   function downloadBill(o) {
     const w = window.open("", "_blank"); if (!w) return;
     const s = data.settings || {};
-    const b = gstOf(o.amount); const half = +(b.gst / 2).toFixed(2);
+    const b = bill(o);
     const item = itemLabel(o);
     const date = new Date(o.paid_at || o.created_at).toLocaleString();
     const HSN = s.hsn || "998314";
@@ -184,7 +185,14 @@ export default function Admin() {
     const ADDR = s.biz_address || "";
     const GSTIN = s.gstin ? "GSTIN: " + s.gstin : "GSTIN: __________";
     const LOGO = s.logo_url ? '<img src="' + s.logo_url + '" alt="logo" style="max-height:56px;max-width:180px;margin-bottom:8px"/><br/>' : "";
-    const party = nameById[o.user_id] || emailById[o.user_id] || "Customer";
+    const party = (nameById[o.user_id] || emailById[o.user_id] || "Customer") +
+      (o.buyer_gstin ? '<div class="muted">GSTIN: ' + o.buyer_gstin + '</div>' : '') +
+      (o.buyer_city || o.buyer_state ? '<div class="muted">' + [o.buyer_city, o.buyer_state, o.buyer_pincode].filter(Boolean).join(", ") + '</div>' : '') +
+      (o.buyer_state ? '<div class="muted">Place of supply: ' + o.buyer_state + '</div>' : '');
+    const taxRows = b.igst
+      ? '<div><span>IGST @ ' + RATE + '%</span><span>₹' + b.igstAmt.toLocaleString() + '</span></div>'
+      : '<div><span>CGST @ ' + (RATE / 2) + '%</span><span>₹' + b.cgst.toLocaleString() + '</span></div>' +
+        '<div><span>SGST @ ' + (RATE / 2) + '%</span><span>₹' + b.sgst.toLocaleString() + '</span></div>';
     w.document.write(
       '<html><head><title>Invoice ' + (o.invoice_no || o.id) + '</title><style>' +
       'body{font-family:Arial,sans-serif;color:#1b2138;max-width:720px;margin:auto;padding:32px}' +
@@ -203,8 +211,7 @@ export default function Admin() {
       '<tbody><tr><td>' + item + '</td><td class="r">' + HSN + '</td><td class="r">₹' + b.taxable.toLocaleString() + '</td></tr></tbody></table>' +
       '<div class="summary">' +
       '<div><span>Taxable value</span><span>₹' + b.taxable.toLocaleString() + '</span></div>' +
-      '<div><span>CGST @ ' + (RATE / 2) + '%</span><span>₹' + half.toLocaleString() + '</span></div>' +
-      '<div><span>SGST @ ' + (RATE / 2) + '%</span><span>₹' + half.toLocaleString() + '</span></div>' +
+      taxRows +
       '<div class="tot"><span>Total (incl. GST)</span><span>₹' + b.gross.toLocaleString() + '</span></div>' +
       '</div>' +
       '<div class="tag">Order ID: ' + o.id + ' · Payment mode: ' + (o.payment_mode || "Online (Cashfree)") + ' · Status: Received.<br/>Prices are inclusive of GST @ ' + RATE + '%. This is a system-generated invoice.</div>' +
@@ -338,7 +345,7 @@ export default function Admin() {
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))", gap: 16, marginBottom: 18 }}>
               <K label="Bills generated" v={paidOrders.length} />
               <K label="Total billed (incl GST)" v={"₹" + paidRevenue.toLocaleString()} />
-              <K label="Total tax (GST)" v={"₹" + paidOrders.reduce((a, o) => a + gstOf(o.amount).gst, 0).toLocaleString(undefined, { maximumFractionDigits: 2 })} />
+              <K label="Total tax (GST)" v={"₹" + paidOrders.reduce((a, o) => a + bill(o).tax, 0).toLocaleString(undefined, { maximumFractionDigits: 2 })} />
             </div>
             <div className="card">
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, flexWrap: "wrap", gap: 8 }}>
@@ -347,17 +354,18 @@ export default function Admin() {
               </div>
               {paidOrders.length === 0 ? <p style={{ color: "var(--soft)" }}>No bills generated yet. Bills appear here once a payment is received.</p> : (
                 <div style={{ overflowX: "auto" }}>
-                  <table><thead><tr><th>Date</th><th>Invoice No</th><th>Party name</th><th>Item</th><th>Amount</th><th>Tax (GST)</th><th>Payment mode</th><th>Total</th><th>Received</th><th>Bill</th></tr></thead>
+                  <table><thead><tr><th>Date</th><th>Invoice No</th><th>Party name</th><th>GSTIN</th><th>Item</th><th>Amount</th><th>Tax (GST)</th><th>Payment mode</th><th>Total</th><th>Received</th><th>Bill</th></tr></thead>
                     <tbody>{paidOrders.map((o) => {
-                      const b = gstOf(o.amount);
+                      const b = bill(o);
                       return (
                         <tr key={o.id}>
                           <td style={{ color: "var(--soft)" }}>{new Date(o.paid_at || o.created_at).toLocaleDateString()}</td>
                           <td style={{ fontSize: 12 }}>{o.invoice_no || "—"}</td>
-                          <td>{nameById[o.user_id] || emailById[o.user_id] || "—"}</td>
+                          <td>{nameById[o.user_id] || emailById[o.user_id] || "—"}<div style={{ fontSize: 11, color: "var(--soft)" }}>{o.buyer_state || ""}</div></td>
+                          <td style={{ fontSize: 11.5 }}>{o.buyer_gstin || "—"}</td>
                           <td>{itemLabel(o)}</td>
                           <td>₹{b.taxable.toLocaleString()}</td>
-                          <td>₹{b.gst.toLocaleString()}</td>
+                          <td>₹{b.tax.toLocaleString()}<div style={{ fontSize: 10.5, color: "var(--soft)" }}>{b.igst ? "IGST" : "CGST+SGST"}</div></td>
                           <td>{o.payment_mode || "Online (Cashfree)"}</td>
                           <td><b>₹{b.gross.toLocaleString()}</b></td>
                           <td><span className="pill pro">✓ Received</span></td>
@@ -470,7 +478,7 @@ export default function Admin() {
         )}
       </div>
 
-      {userView && <UserModal u={userView} codes={codes} orders={orders} txns={txns} gstOf={gstOf} itemLabel={itemLabel} onClose={() => setUserView(null)} />}
+      {userView && <UserModal u={userView} codes={codes} orders={orders} txns={txns} itemLabel={itemLabel} onClose={() => setUserView(null)} />}
       {codeView && <CodeModal c={codeView} email={emailById[codeView.user_id]} onClose={() => setCodeView(null)} />}
     </div>
   );
@@ -492,7 +500,7 @@ function Row({ k, v }) {
   return <div style={{ display: "flex", justifyContent: "space-between", gap: 12, padding: "7px 0", borderBottom: "1px solid var(--line)", fontSize: 13.5 }}><span style={{ color: "var(--soft)" }}>{k}</span><span style={{ textAlign: "right", wordBreak: "break-word" }}>{v}</span></div>;
 }
 
-function UserModal({ u, codes, orders, txns, gstOf, itemLabel, onClose }) {
+function UserModal({ u, codes, orders, txns, itemLabel, onClose }) {
   const uCodes = codes.filter((c) => c.user_id === u.id);
   const uOrders = (orders || []).filter((o) => o.user_id === u.id);
   const uPaid = uOrders.filter((o) => o.status === "paid");

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { supabaseServer } from "../../../../lib/supabaseServer";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 import { createOrder, cashfreeConfigured } from "../../../../lib/cashfree";
+import { isValidGstin, isValidPincode, normalizeGstin, stateFromGstin, taxTypeFor } from "../../../../lib/gst";
 
 export const dynamic = "force-dynamic";
 
@@ -34,8 +35,30 @@ export async function POST(request) {
   }
   if (amount <= 0) return NextResponse.json({ error: "Invalid amount" }, { status: 400 });
 
+  // ---- Mandatory GST declaration (before a payment link is issued) ----
+  const gst = body.gst || {};
+  const gstApplicable = gst.applicable === true || gst.applicable === "yes";
+  let gstFields = { gst_applicable: false, buyer_gstin: null, buyer_state: null, buyer_city: null, buyer_pincode: null, tax_type: "cgst_sgst" };
+  if (gst.applicable === undefined || gst.applicable === null || gst.applicable === "") {
+    return NextResponse.json({ error: "Please declare whether GST is applicable before proceeding." }, { status: 400 });
+  }
+  if (gstApplicable) {
+    const gstin = normalizeGstin(gst.gstin);
+    const city = String(gst.city || "").trim();
+    const pincode = String(gst.pincode || "").trim();
+    if (!isValidGstin(gstin)) return NextResponse.json({ error: "Enter a valid 15-character GSTIN." }, { status: 400 });
+    if (!city) return NextResponse.json({ error: "City is required for a GST invoice." }, { status: 400 });
+    if (!isValidPincode(pincode)) return NextResponse.json({ error: "Enter a valid 6-digit pincode." }, { status: 400 });
+    const state = stateFromGstin(gstin);
+    if (!state) return NextResponse.json({ error: "Could not read the state from that GSTIN." }, { status: 400 });
+    // seller state comes from the business GSTIN in settings (defaults to Gujarat)
+    const { data: st } = await admin.from("qs_settings").select("gstin").eq("id", 1).single();
+    const taxType = taxTypeFor(gstin, st && st.gstin);
+    gstFields = { gst_applicable: true, buyer_gstin: gstin, buyer_state: state, buyer_city: city, buyer_pincode: pincode, tax_type: taxType };
+  }
+
   const orderId = "qrs" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-  await admin.from("qs_orders").insert({ id: orderId, user_id: user.id, kind, plan, qty, amount, status: "pending" });
+  await admin.from("qs_orders").insert({ id: orderId, user_id: user.id, kind, plan, qty, amount, status: "pending", ...gstFields });
   if (phone && phone.length >= 10) { await admin.from("qr_profiles").update({ phone }).eq("id", user.id); }
 
   const origin = new URL(request.url).origin;

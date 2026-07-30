@@ -5,6 +5,7 @@ import Link from "next/link";
 import { supabaseBrowser } from "../../lib/supabaseBrowser";
 import { SITE_URL, CASHFREE_MODE } from "../../lib/supabaseConfig";
 import QRCanvas, { drawQR, composeBranded } from "../../components/QRCanvas";
+import { isValidGstin, isValidPincode, stateFromGstin, taxTypeFor, taxBreakup } from "../../lib/gst";
 
 // Dynamic codes (URL type) encode a redirect through /r/<id> so the destination
 // can be edited after printing and scans are tracked. Other types stay static.
@@ -468,8 +469,15 @@ function Billing({ supabase, profile, plans, txns, orders, settings, onChange, f
   const [busy, setBusy] = useState(false);
   const [phone, setPhone] = useState("");
   const [pending, setPending] = useState(null); // { kind, planId?, qty?, amount, label }
+  const [gstOn, setGstOn] = useState(""); // "" (not chosen) | "yes" | "no"
+  const [gstin, setGstin] = useState("");
+  const [gstCity, setGstCity] = useState("");
+  const [gstPin, setGstPin] = useState("");
   const rate = plans.find((p) => p.id === profile?.plan)?.addon_rate || 100;
   useEffect(() => { if (profile && profile.phone) setPhone(profile.phone); }, [profile]);
+  const gstState = gstOn === "yes" && isValidGstin(gstin) ? stateFromGstin(gstin) : "";
+  const sellerGstin = settings && settings.gstin;
+  const gstReady = gstOn === "no" || (gstOn === "yes" && isValidGstin(gstin) && gstCity.trim() && isValidPincode(gstPin));
 
   // On return from Cashfree checkout, verify the order and grant credits.
   useEffect(() => {
@@ -529,7 +537,16 @@ function Billing({ supabase, profile, plans, txns, orders, settings, onChange, f
   function confirmPay() {
     const digits = String(phone).replace(/[^0-9]/g, "");
     if (digits.length < 10) { flash("Enter a valid 10-digit phone number"); return; }
-    startCheckout({ kind: pending.kind, planId: pending.planId, qty: pending.qty, phone: digits });
+    if (gstOn === "") { flash("Please select whether GST is applicable"); return; }
+    if (gstOn === "yes") {
+      if (!isValidGstin(gstin)) { flash("Enter a valid 15-character GSTIN"); return; }
+      if (!gstCity.trim()) { flash("Enter your city"); return; }
+      if (!isValidPincode(gstPin)) { flash("Enter a valid 6-digit pincode"); return; }
+    }
+    const gst = gstOn === "yes"
+      ? { applicable: "yes", gstin: gstin.toUpperCase().trim(), city: gstCity.trim(), pincode: gstPin.trim() }
+      : { applicable: "no" };
+    startCheckout({ kind: pending.kind, planId: pending.planId, qty: pending.qty, phone: digits, gst });
   }
   function retry(o) {
     const label = (o.kind === "plan" ? (o.plan || "Plan") + " package" : (o.qty || "") + " addon credits") + " (retry)";
@@ -541,15 +558,21 @@ function Billing({ supabase, profile, plans, txns, orders, settings, onChange, f
     const date = new Date(o.paid_at || o.created_at).toLocaleString();
     const s = settings || {};
     const RATE = Number(s.gst_rate != null ? s.gst_rate : 18); // GST %
-    const gross = Number(o.amount) || 0;
-    const taxable = +(gross / (1 + RATE / 100)).toFixed(2);
-    const gst = +(gross - taxable).toFixed(2);
-    const half = +(gst / 2).toFixed(2);
+    const b = taxBreakup(o.amount, RATE, o.tax_type);
+    const taxable = b.taxable, gross = b.gross;
     const HSN = s.hsn || "998314";
     const BIZ = s.biz_name || "QR Studio";
     const ADDR = s.biz_address || "";
     const GSTIN = s.gstin ? "GSTIN: " + s.gstin : "GSTIN: __________ (set in Admin → Settings)";
     const LOGO = s.logo_url ? '<img src="' + s.logo_url + '" alt="logo" style="max-height:56px;max-width:180px;margin-bottom:8px"/><br/>' : "";
+    const taxRows = b.igst
+      ? '<div><span>IGST @ ' + RATE + '%</span><span>₹' + b.igstAmt.toLocaleString() + '</span></div>'
+      : '<div><span>CGST @ ' + (RATE / 2) + '%</span><span>₹' + b.cgst.toLocaleString() + '</span></div>' +
+        '<div><span>SGST @ ' + (RATE / 2) + '%</span><span>₹' + b.sgst.toLocaleString() + '</span></div>';
+    const billedTo = (profile && profile.email ? profile.email : "Customer") +
+      (o.buyer_gstin ? '<div class="muted">GSTIN: ' + o.buyer_gstin + '</div>' : '') +
+      (o.buyer_city || o.buyer_state ? '<div class="muted">' + [o.buyer_city, o.buyer_state, o.buyer_pincode].filter(Boolean).join(", ") + '</div>' : '') +
+      (o.buyer_state ? '<div class="muted">Place of supply: ' + o.buyer_state + '</div>' : '');
     w.document.write(
       '<html><head><title>Invoice ' + (o.invoice_no || o.id) + '</title><style>' +
       'body{font-family:Arial,sans-serif;color:#1b2138;max-width:720px;margin:auto;padding:32px}' +
@@ -563,13 +586,12 @@ function Billing({ supabase, profile, plans, txns, orders, settings, onChange, f
       '</style></head><body>' +
       '<div class="head"><div>' + LOGO + '<div class="brand">' + BIZ + '</div>' + (ADDR ? '<div class="muted">' + ADDR + '</div>' : '<div class="muted">Developed by Jupiter Technologies · Made in India</div>') + '<div class="muted">' + GSTIN + '</div></div>' +
       '<div style="text-align:right"><div style="font-size:18px;font-weight:700">TAX INVOICE</div><div class="muted">' + (o.invoice_no || o.id) + '</div><div class="muted">' + date + '</div></div></div>' +
-      '<div style="margin-top:18px"><div class="muted">BILLED TO</div><div>' + (profile && profile.email ? profile.email : "Customer") + '</div></div>' +
+      '<div style="margin-top:18px"><div class="muted">BILLED TO</div><div>' + billedTo + '</div></div>' +
       '<table><thead><tr><th>Description</th><th class="r">HSN/SAC</th><th class="r">Taxable value</th></tr></thead>' +
       '<tbody><tr><td>' + item + '</td><td class="r">' + HSN + '</td><td class="r">₹' + taxable.toLocaleString() + '</td></tr></tbody></table>' +
       '<div class="summary">' +
       '<div><span>Taxable value</span><span>₹' + taxable.toLocaleString() + '</span></div>' +
-      '<div><span>CGST @ ' + (RATE / 2) + '%</span><span>₹' + half.toLocaleString() + '</span></div>' +
-      '<div><span>SGST @ ' + (RATE / 2) + '%</span><span>₹' + half.toLocaleString() + '</span></div>' +
+      taxRows +
       '<div class="tot"><span>Total (incl. GST)</span><span>₹' + gross.toLocaleString() + '</span></div>' +
       '</div>' +
       '<div class="tag">Order ID: ' + o.id + ' · Paid via Cashfree.<br/>Prices are inclusive of GST @ ' + RATE + '%. This is a system-generated invoice; a registered GSTIN can be added above once available.</div>' +
@@ -651,9 +673,58 @@ function Billing({ supabase, profile, plans, txns, orders, settings, onChange, f
               <label>Phone number (for payment &amp; receipt)</label>
               <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="10-digit mobile number" inputMode="numeric" maxLength={10} />
             </div>
-            <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
+
+            <div className="field">
+              <label>GST applicable? <span style={{ color: "var(--gold)" }}>*</span></label>
+              <div style={{ display: "flex", gap: 8 }}>
+                {[["yes", "Yes — I have a GSTIN"], ["no", "No"]].map(([v, l]) => (
+                  <button key={v} type="button" onClick={() => setGstOn(v)}
+                    className={"btn " + (gstOn === v ? "btn-primary" : "btn-ghost")}
+                    style={{ flex: 1, justifyContent: "center", fontSize: 13 }}>{l}</button>
+                ))}
+              </div>
+            </div>
+
+            {gstOn === "yes" && (
+              <>
+                <div className="field">
+                  <label>GSTIN <span style={{ color: "var(--gold)" }}>*</span></label>
+                  <input value={gstin} onChange={(e) => setGstin(e.target.value.toUpperCase())} placeholder="24ABCDE1234F1Z5" maxLength={15} style={{ textTransform: "uppercase" }} />
+                  {gstin && !isValidGstin(gstin) && <div style={{ fontSize: 11.5, color: "#c0392b", marginTop: 4 }}>That doesn't look like a valid 15-character GSTIN.</div>}
+                  {gstState && <div style={{ fontSize: 11.5, color: "var(--accent)", marginTop: 4 }}>State auto-detected: <b>{gstState}</b></div>}
+                </div>
+                <div style={{ display: "flex", gap: 10 }}>
+                  <div className="field" style={{ flex: 1 }}>
+                    <label>City <span style={{ color: "var(--gold)" }}>*</span></label>
+                    <input value={gstCity} onChange={(e) => setGstCity(e.target.value)} placeholder="Ahmedabad" />
+                  </div>
+                  <div className="field" style={{ width: 130 }}>
+                    <label>Pincode <span style={{ color: "var(--gold)" }}>*</span></label>
+                    <input value={gstPin} onChange={(e) => setGstPin(e.target.value.replace(/[^0-9]/g, ""))} placeholder="380001" inputMode="numeric" maxLength={6} />
+                  </div>
+                </div>
+              </>
+            )}
+
+            {gstReady && (() => {
+              const tt = gstOn === "yes" ? taxTypeFor(gstin, sellerGstin) : "cgst_sgst";
+              const RATE = Number(settings && settings.gst_rate != null ? settings.gst_rate : 18);
+              const b = taxBreakup(pending.amount, RATE, tt);
+              return (
+                <div style={{ background: "var(--card2)", border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px", marginTop: 6, fontSize: 12.5, color: "var(--soft)" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", padding: "2px 0" }}><span>Taxable value</span><span>₹{b.taxable.toLocaleString()}</span></div>
+                  {b.igst
+                    ? <div style={{ display: "flex", justifyContent: "space-between", padding: "2px 0" }}><span>IGST @ {RATE}%</span><span>₹{b.igstAmt.toLocaleString()}</span></div>
+                    : <><div style={{ display: "flex", justifyContent: "space-between", padding: "2px 0" }}><span>CGST @ {RATE / 2}%</span><span>₹{b.cgst.toLocaleString()}</span></div>
+                       <div style={{ display: "flex", justifyContent: "space-between", padding: "2px 0" }}><span>SGST @ {RATE / 2}%</span><span>₹{b.sgst.toLocaleString()}</span></div></>}
+                  <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0 0", borderTop: "1px solid var(--line)", marginTop: 4, color: "var(--txt)", fontWeight: 700 }}><span>Total (incl. GST)</span><span>₹{b.gross.toLocaleString()}</span></div>
+                </div>
+              );
+            })()}
+
+            <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
               <button className="btn btn-ghost" style={{ flex: 1, justifyContent: "center" }} onClick={() => setPending(null)} disabled={busy}>Cancel</button>
-              <button className="btn btn-primary" style={{ flex: 1, justifyContent: "center" }} onClick={confirmPay} disabled={busy}>{busy ? "Starting…" : "Pay ₹" + pending.amount.toLocaleString()}</button>
+              <button className="btn btn-primary" style={{ flex: 1, justifyContent: "center" }} onClick={confirmPay} disabled={busy || !gstReady} title={!gstReady ? "Complete the GST details to continue" : ""}>{busy ? "Starting…" : "Pay ₹" + pending.amount.toLocaleString()}</button>
             </div>
             <p style={{ fontSize: 11, color: "var(--soft)", marginTop: 12, textAlign: "center" }}>Secured by Cashfree · UPI, cards, netbanking</p>
           </div>
