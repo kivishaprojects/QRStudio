@@ -12,7 +12,7 @@ function isDynamicType(typeId) {
   return typeId === "url";
 }
 function qrValueFor(code) {
-  if (code && code.dynamic && code.id) return `${SITE_URL}/r/${code.id}`;
+  if (code && code.dynamic && (code.slug || code.id)) return `${SITE_URL}/r/${code.slug || code.id}`;
   return (code && code.content) || " ";
 }
 
@@ -142,6 +142,24 @@ function Overview({ profile, codes, totalScans, planName, setTab }) {
   );
 }
 
+function loadLogoFile(file, setter) {
+  if (!file) return;
+  const r = new FileReader();
+  r.onload = () => {
+    const img = new Image();
+    img.onload = () => {
+      const max = 300; let w = img.width, h = img.height;
+      if (Math.max(w, h) > max) { const sc = max / Math.max(w, h); w = Math.round(w * sc); h = Math.round(h * sc); }
+      const cc = document.createElement("canvas"); cc.width = w; cc.height = h;
+      cc.getContext("2d").drawImage(img, 0, 0, w, h);
+      const d2 = cc.toDataURL("image/png");
+      const im = new Image(); im.onload = () => setter({ data: d2, img: im }); im.src = d2;
+    };
+    img.src = r.result;
+  };
+  r.readAsDataURL(file);
+}
+
 function Create({ supabase, profile, onSaved, onNoCredit, flash }) {
   const [type, setType] = useState("url");
   const [values, setValues] = useState({ url: "https://qrstudio.example.com" });
@@ -149,26 +167,35 @@ function Create({ supabase, profile, onSaved, onNoCredit, flash }) {
   const [bg, setBg] = useState("#ffffff");
   const [dot, setDot] = useState("square");
   const [name, setName] = useState("My QR code");
+  const [topText, setTopText] = useState("");
+  const [bottomText, setBottomText] = useState("");
+  const [topLogo, setTopLogo] = useState({ data: null, img: null });
+  const [centerLogo, setCenterLogo] = useState({ data: null, img: null });
   const [saving, setSaving] = useState(false);
-  const canvasRef = useRef(null);
   const t = TYPES.find((x) => x.id === type);
   const data = t.build(values) || " ";
   const noCredit = (profile?.credits ?? 0) <= 0;
+
+  const brandOpts = { qrData: data, fg, bg, dot, topText, bottomText, logoImg: topLogo.img, centerLogoImg: centerLogo.img };
+  function buildStyle() {
+    return { fg, bg, dot, brandTop: topText, brandBottom: bottomText, logo: topLogo.data || null, centerLogo: centerLogo.data || null };
+  }
 
   async function save() {
     if (noCredit) { onNoCredit(); return; }
     setSaving(true);
     const { error } = await supabase.rpc("qr_save_code", {
-      p_name: name, p_type: t.name, p_content: data, p_style: { fg, bg, dot }, p_dynamic: isDynamicType(type),
+      p_name: name, p_type: t.name, p_content: data, p_style: buildStyle(), p_dynamic: isDynamicType(type),
     });
     setSaving(false);
-    if (error) { flash(error.message === "no_credits" ? "Out of credits — upgrade to continue" : "Error: " + error.message); if (error.message?.includes("credit")) onNoCredit(); return; }
+    if (error) { flash(error.message === "no_credits" ? "Out of credits — upgrade to continue" : "Error: " + error.message); if (error.message && error.message.includes("credit")) onNoCredit(); return; }
     onSaved();
   }
   function download() {
-    const c = document.createElement("canvas");
-    drawQR(c, { data, fg, bg, dot, ecl: "M", size: 720 });
-    const a = document.createElement("a"); a.href = c.toDataURL("image/png"); a.download = "qr.png"; a.click();
+    const a = document.createElement("a");
+    a.href = composeBranded(brandOpts).toDataURL("image/png");
+    a.download = (name || "qr") + ".png";
+    a.click();
     flash("PNG downloaded");
   }
 
@@ -198,21 +225,44 @@ function Create({ supabase, profile, onSaved, onNoCredit, flash }) {
             <div className="field"><label>Module</label><select value={dot} onChange={(e) => setDot(e.target.value)}><option value="square">Square</option><option value="rounded">Rounded</option><option value="dots">Dots</option></select></div>
           </div>
         </div>
+        <div className="card" style={{ marginTop: 18 }}>
+          <h3 style={{ fontSize: 16, marginBottom: 14 }}>Branding <span style={{ fontSize: 12, color: "var(--soft)", fontWeight: 400 }}>(shown on download &amp; print)</span></h3>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <div className="field"><label>Top title / brand name</label><input value={topText} onChange={(e) => setTopText(e.target.value)} placeholder="e.g. Spice Route Café" /></div>
+            <div className="field"><label>Bottom text</label><input value={bottomText} onChange={(e) => setBottomText(e.target.value)} placeholder="e.g. Scan for our menu" /></div>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <div className="field" style={{ marginBottom: 0 }}>
+              <label>Top logo (above title)</label>
+              <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                <input type="file" accept="image/*" onChange={(e) => loadLogoFile(e.target.files && e.target.files[0], setTopLogo)} style={{ fontSize: 11.5, maxWidth: 150 }} />
+                {topLogo.data && <button className="btn btn-ghost btn-sm" onClick={() => setTopLogo({ data: null, img: null })}>Remove</button>}
+              </div>
+            </div>
+            <div className="field" style={{ marginBottom: 0 }}>
+              <label>Center logo (in the QR)</label>
+              <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                <input type="file" accept="image/*" onChange={(e) => loadLogoFile(e.target.files && e.target.files[0], setCenterLogo)} style={{ fontSize: 11.5, maxWidth: 150 }} />
+                {centerLogo.data && <button className="btn btn-ghost btn-sm" onClick={() => setCenterLogo({ data: null, img: null })}>Remove</button>}
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
       <div className="card" style={{ textAlign: "center" }}>
         <h3 style={{ fontSize: 16, marginBottom: 14 }}>Preview</h3>
-        <div style={{ background: "#fff", borderRadius: 16, padding: 18, display: "inline-block" }}>
-          <QRCanvas value={data} fg={fg} bg={bg} dot={dot} ecl="M" />
+        <div style={{ background: "#fff", borderRadius: 16, padding: 14, display: "inline-block", border: "1px solid var(--line)" }}>
+          <BrandedPreview opts={brandOpts} display={230} />
         </div>
-        <div className="field" style={{ textAlign: "left", marginTop: 16 }}><label>Name this code</label><input value={name} onChange={(e) => setName(e.target.value)} /></div>
+        <div className="field" style={{ textAlign: "left", marginTop: 16 }}><label>Name this code (internal)</label><input value={name} onChange={(e) => setName(e.target.value)} /></div>
         <button className="btn btn-primary" style={{ width: "100%", justifyContent: "center" }} onClick={save} disabled={saving}>
           {saving ? "Saving…" : noCredit ? "🔒 Out of credits — upgrade" : "💾 Save & use 1 credit"}
         </button>
         <button className="btn btn-ghost" style={{ width: "100%", justifyContent: "center", marginTop: 9 }} onClick={download}>⬇ Download PNG (free)</button>
         <div style={{ marginTop: 14, fontSize: 12.5, color: "var(--soft)", background: "var(--card2)", border: "1px solid var(--line)", borderRadius: 10, padding: 11 }}>
-          You have <b style={{ color: "var(--gold)" }}>{profile?.credits ?? 0}</b> credit(s). Saving a code uses 1. Downloads are always free.
+          You have <b style={{ color: "var(--gold)" }}>{profile?.credits ?? 0}</b> credit(s). Saving a code uses 1. Downloads are free.
           {isDynamicType(type)
-            ? " This is a dynamic QR — after saving, download it from My QR Codes so you can edit the link later and track scans."
+            ? " This is a dynamic QR — save it, then download from My QR Codes to get the trackable, editable version."
             : " This is a static QR (encodes the data directly)."}
         </div>
       </div>
@@ -232,7 +282,7 @@ function BrandedPreview({ opts, display = 220 }) {
     const ctx = el.getContext("2d");
     ctx.clearRect(0, 0, el.width, el.height);
     ctx.drawImage(c, 0, 0, el.width, el.height);
-  }, [opts.qrData, opts.fg, opts.bg, opts.dot, opts.topText, opts.bottomText, opts.logoImg, display]);
+  }, [opts.qrData, opts.fg, opts.bg, opts.dot, opts.topText, opts.bottomText, opts.logoImg, opts.centerLogoImg, display]);
   return <canvas ref={ref} style={{ width: display, height: "auto", maxWidth: "100%", borderRadius: 8 }} />;
 }
 
@@ -244,6 +294,8 @@ function Codes({ codes, setTab, supabase, onChange, flash }) {
   const [bottomText, setBottomText] = useState("");
   const [logoData, setLogoData] = useState(null);
   const [logoImg, setLogoImg] = useState(null);
+  const [centerData, setCenterData] = useState(null);
+  const [centerImg, setCenterImg] = useState(null);
   const [busy, setBusy] = useState(false);
 
   function open(c) {
@@ -251,34 +303,20 @@ function Codes({ codes, setTab, supabase, onChange, flash }) {
     setSel(c); setName(c.name); setContent(c.content);
     setTopText(s.brandTop != null ? s.brandTop : c.name);
     setBottomText(s.brandBottom || "");
-    setLogoData(s.logo || null);
-    setLogoImg(null);
+    setLogoData(s.logo || null); setLogoImg(null);
     if (s.logo) { const im = new Image(); im.onload = () => setLogoImg(im); im.src = s.logo; }
+    setCenterData(s.centerLogo || null); setCenterImg(null);
+    if (s.centerLogo) { const im = new Image(); im.onload = () => setCenterImg(im); im.src = s.centerLogo; }
   }
   function close() { setSel(null); }
 
   const style = (sel && sel.style) || {};
   const fg = style.fg || "#181b3a", bg = style.bg || "#ffffff", dot = style.dot || "square";
-  const qrData = sel ? (sel.dynamic ? `${SITE_URL}/r/${sel.id}` : (content || sel.content || " ")) : " ";
-  const brandOpts = { qrData, fg, bg, dot, topText, bottomText, logoImg };
+  const qrData = sel ? (sel.dynamic ? `${SITE_URL}/r/${sel.slug || sel.id}` : (content || sel.content || " ")) : " ";
+  const brandOpts = { qrData, fg, bg, dot, topText, bottomText, logoImg, centerLogoImg: centerImg };
 
-  function onLogo(file) {
-    if (!file) return;
-    const r = new FileReader();
-    r.onload = () => {
-      const img = new Image();
-      img.onload = () => {
-        const max = 300; let w = img.width, h = img.height;
-        if (Math.max(w, h) > max) { const sc = max / Math.max(w, h); w = Math.round(w * sc); h = Math.round(h * sc); }
-        const cc = document.createElement("canvas"); cc.width = w; cc.height = h;
-        cc.getContext("2d").drawImage(img, 0, 0, w, h);
-        const data = cc.toDataURL("image/png");
-        const im = new Image(); im.onload = () => { setLogoImg(im); setLogoData(data); }; im.src = data;
-      };
-      img.src = r.result;
-    };
-    r.readAsDataURL(file);
-  }
+  const onLogo = (file) => loadLogoFile(file, ({ data, img }) => { setLogoData(data); setLogoImg(img); });
+  const onCenter = (file) => loadLogoFile(file, ({ data, img }) => { setCenterData(data); setCenterImg(img); });
 
   function download() {
     const a = document.createElement("a");
@@ -300,7 +338,7 @@ function Codes({ codes, setTab, supabase, onChange, flash }) {
     w.document.close();
   }
   function buildStyle() {
-    return { fg, bg, dot, brandTop: topText, brandBottom: bottomText, logo: logoData || null };
+    return { fg, bg, dot, brandTop: topText, brandBottom: bottomText, logo: logoData || null, centerLogo: centerData || null };
   }
   async function save() {
     setBusy(true);
@@ -359,11 +397,20 @@ function Codes({ codes, setTab, supabase, onChange, flash }) {
                 <div style={{ borderTop: "1px solid var(--line)", margin: "6px 0 12px", paddingTop: 10, fontSize: 12.5, fontWeight: 600, color: "var(--soft)" }}>BRANDING (shown on download &amp; print)</div>
                 <div className="field"><label>Top title / brand name</label><input value={topText} onChange={(e) => setTopText(e.target.value)} placeholder="e.g. Spice Route Café" /></div>
                 <div className="field"><label>Bottom text</label><input value={bottomText} onChange={(e) => setBottomText(e.target.value)} placeholder="e.g. Scan for our menu" /></div>
-                <div className="field" style={{ marginBottom: 0 }}>
-                  <label>Logo (top, optional)</label>
-                  <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                    <input type="file" accept="image/*" onChange={(e) => onLogo(e.target.files && e.target.files[0])} style={{ fontSize: 12 }} />
-                    {logoData && <button className="btn btn-ghost btn-sm" onClick={() => { setLogoData(null); setLogoImg(null); }}>Remove logo</button>}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                  <div className="field" style={{ marginBottom: 0 }}>
+                    <label>Top logo (above title)</label>
+                    <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                      <input type="file" accept="image/*" onChange={(e) => onLogo(e.target.files && e.target.files[0])} style={{ fontSize: 11, maxWidth: 130 }} />
+                      {logoData && <button className="btn btn-ghost btn-sm" onClick={() => { setLogoData(null); setLogoImg(null); }}>✕</button>}
+                    </div>
+                  </div>
+                  <div className="field" style={{ marginBottom: 0 }}>
+                    <label>Center logo (in QR)</label>
+                    <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                      <input type="file" accept="image/*" onChange={(e) => onCenter(e.target.files && e.target.files[0])} style={{ fontSize: 11, maxWidth: 130 }} />
+                      {centerData && <button className="btn btn-ghost btn-sm" onClick={() => { setCenterData(null); setCenterImg(null); }}>✕</button>}
+                    </div>
                   </div>
                 </div>
                 <div style={{ fontSize: 12, color: "var(--soft)", marginTop: 10 }}>

@@ -12,12 +12,13 @@ function rr(c, x, y, w, h, r) {
   c.closePath();
 }
 
-export function drawQR(canvas, { data, fg = "#181b3a", bg = "#ffffff", dot = "square", ecl = "M", size = 460 }) {
+export function drawQR(canvas, { data, fg = "#181b3a", bg = "#ffffff", dot = "square", ecl = "M", size = 460, centerLogo = null }) {
   if (!canvas) return;
   const ctx = canvas.getContext("2d");
   let qr;
   try {
-    qr = qrcode(0, ecl);
+    // Use high error correction when a center logo covers part of the code.
+    qr = qrcode(0, centerLogo ? "H" : ecl);
     qr.addData(data || " ");
     qr.make();
   } catch (e) {
@@ -49,11 +50,23 @@ export function drawQR(canvas, { data, fg = "#181b3a", bg = "#ffffff", dot = "sq
         ctx.fillRect(x, y, cell, cell);
       }
     }
+  // Center logo with a clean rounded backing so it stays scannable.
+  if (centerLogo && centerLogo.width) {
+    const box = d * 0.2;
+    const pad = box * 0.14;
+    const bx = (d - box) / 2;
+    ctx.fillStyle = bg;
+    rr(ctx, bx - pad, bx - pad, box + pad * 2, box + pad * 2, box * 0.2);
+    ctx.fill();
+    const lr = Math.min(box / centerLogo.width, box / centerLogo.height);
+    const lw = centerLogo.width * lr, lh = centerLogo.height * lr;
+    ctx.drawImage(centerLogo, (d - lw) / 2, (d - lh) / 2, lw, lh);
+  }
 }
 
 // Build a branded image: optional logo + title on top, QR in the middle,
 // optional short text at the bottom. Returns a canvas.
-export function composeBranded({ qrData, fg = "#181b3a", bg = "#ffffff", dot = "square", topText = "", bottomText = "", logoImg = null }) {
+export function composeBranded({ qrData, fg = "#181b3a", bg = "#ffffff", dot = "square", topText = "", bottomText = "", logoImg = null, centerLogoImg = null }) {
   const S = 760;       // QR render size
   const margin = 64;
   const gap = 18;
@@ -111,7 +124,7 @@ export function composeBranded({ qrData, fg = "#181b3a", bg = "#ffffff", dot = "
   if (topBlockH) y += gap;
 
   const qc = document.createElement("canvas");
-  drawQR(qc, { data: qrData, fg, bg, dot, ecl: "M", size: S });
+  drawQR(qc, { data: qrData, fg, bg, dot, ecl: "M", size: S, centerLogo: centerLogoImg });
   ctx.drawImage(qc, (W - qc.width) / 2, y, qc.width, qc.width);
   y += S;
 

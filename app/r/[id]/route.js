@@ -7,7 +7,7 @@ export async function GET(_req, { params }) {
   const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
   let content = "/";
   try {
-    const { data } = await supabase.rpc("qr_track_scan", { p_id: params.id });
+    const { data } = await supabase.rpc("qr_track_scan", { p_key: params.id });
     if (data) content = data;
   } catch (_) {}
   if (/^https?:\/\//i.test(content)) {
