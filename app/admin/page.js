@@ -1017,6 +1017,16 @@ function UserModal({ u, codes, orders, txns, itemLabel, supabase, flash, onChang
     if (error) flash("Error: " + error.message); else { flash("✅ Updated"); refresh(); }
   }
   const [newKey, setNewKey] = useState("");
+  const [creditAmt, setCreditAmt] = useState(5);
+  async function addCredits(amount) {
+    const n = parseInt(amount, 10);
+    if (!n) { flash("Enter a non-zero amount"); return; }
+    setBusy("credits");
+    const { error } = await supabase.rpc("qr_admin_add_credits", { p_user: u.id, p_amount: n, p_note: "Manual adjustment by admin" });
+    setBusy("");
+    if (error) flash("Error: " + error.message);
+    else { flash("✅ " + (n > 0 ? "Added " : "Removed ") + Math.abs(n) + " credit" + (Math.abs(n) === 1 ? "" : "s")); refresh(); }
+  }
   async function setApiKey(generate) {
     if (!generate && !window.confirm("Revoke this user's API key?")) return;
     setBusy("api_key");
@@ -1050,8 +1060,22 @@ function UserModal({ u, codes, orders, txns, itemLabel, supabase, flash, onChang
 
       <h4 style={{ fontSize: 13, textTransform: "uppercase", color: "var(--soft)", margin: "16px 0 4px" }}>Subscription</h4>
       <Row k="Current plan" v={<span className={"pill " + u.plan}>{u.plan}</span>} />
-      <Row k="Credits remaining" v={u.credits} />
+      <Row k="Credits remaining" v={<b style={{ color: "var(--saffron)" }}>{prof.credits}</b>} />
       <Row k="QR codes created" v={uCodes.length} />
+
+      <div style={{ background: "var(--card2)", border: "1px solid var(--line)", borderRadius: 10, padding: 12, margin: "10px 0" }}>
+        <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 8 }}>Add / adjust credits</div>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+          <input type="number" value={creditAmt} onChange={(e) => setCreditAmt(e.target.value)} style={{ width: 80, background: "#fff", border: "1px solid var(--line)", borderRadius: 8, padding: "7px 9px", fontSize: 13 }} />
+          <button className="btn btn-primary btn-sm" disabled={busy === "credits"} onClick={() => addCredits(creditAmt)}>Apply</button>
+          <span style={{ width: 1, height: 20, background: "var(--line)" }} />
+          {[5, 10, 25].map((n) => (
+            <button key={n} className="btn btn-ghost btn-sm" disabled={busy === "credits"} onClick={() => addCredits(n)}>+{n}</button>
+          ))}
+          <button className="btn btn-ghost btn-sm" disabled={busy === "credits"} onClick={() => addCredits(-1)}>−1</button>
+        </div>
+        <div style={{ fontSize: 11, color: "var(--soft)", marginTop: 6 }}>Use a negative number to deduct. Every change is logged.</div>
+      </div>
 
       <h4 style={{ fontSize: 13, textTransform: "uppercase", color: "var(--soft)", margin: "16px 0 4px" }}>Services &amp; entitlements</h4>
       {FEATURES.map((f) => {
