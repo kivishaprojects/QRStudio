@@ -1,7 +1,7 @@
 import "./globals.css";
 
 export const metadata = {
-  title: "QR Studio — Dynamic QR Codes for Everything",
+  title: "India QRCode — Dynamic QR Codes for Everything",
   description:
     "Create, brand, and track dynamic QR codes. 1 free code, then ₹100/QR monthly or annual packages.",
 };

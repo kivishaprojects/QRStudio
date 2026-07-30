@@ -1,4 +1,4 @@
-# QR Studio — SaaS Portal
+# India QRCode — SaaS Portal
 
 A dynamic QR-code SaaS built with **Next.js 14 (App Router)**, **Supabase** (Postgres + Auth + RLS), and deployed on **Vercel**.
 
@@ -62,4 +62,4 @@ Use Cashfree test cards in sandbox to try the full flow.
 - Add email verification, password reset, and team/multi-seat support
 
 ---
-© 2026 QR Studio. Built with Next.js, Supabase & Vercel.
+© 2026 India QRCode. Built with Next.js, Supabase & Vercel.

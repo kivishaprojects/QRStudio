@@ -18,7 +18,7 @@ function qrValueFor(code) {
 }
 
 const TYPES = [
-  { id: "url", icon: "🔗", name: "URL", fields: [{ k: "url", label: "URL", ph: "https://site.com", val: "https://qrstudio.example.com" }], build: (v) => v.url || "" },
+  { id: "url", icon: "🔗", name: "URL", fields: [{ k: "url", label: "URL", ph: "https://site.com", val: "https://www.indiaqrcode.com" }], build: (v) => v.url || "" },
   { id: "text", icon: "📝", name: "Text", fields: [{ k: "text", label: "Text", ph: "Any text", ta: true }], build: (v) => v.text || "" },
   { id: "wifi", icon: "📶", name: "WiFi", fields: [{ k: "ssid", label: "Network", ph: "MyWiFi" }, { k: "pass", label: "Password", ph: "password" }], build: (v) => `WIFI:T:WPA;S:${v.ssid || ""};P:${v.pass || ""};;` },
   { id: "upi", icon: "💳", name: "UPI", fields: [{ k: "vpa", label: "UPI ID", ph: "name@okbank" }, { k: "pn", label: "Payee", ph: "Vishal" }, { k: "am", label: "Amount", ph: "500" }], build: (v) => `upi://pay?pa=${v.vpa || ""}&pn=${encodeURIComponent(v.pn || "")}${v.am ? "&am=" + v.am : ""}&cu=INR` },
@@ -90,7 +90,7 @@ export default function Dashboard() {
     <div style={{ display: "grid", gridTemplateColumns: "240px 1fr", minHeight: "100vh" }}>
       <aside style={{ background: "var(--bg2)", borderRight: "1px solid var(--line)", padding: "20px 15px", position: "sticky", top: 0, height: "100vh", display: "flex", flexDirection: "column" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, fontWeight: 800, fontSize: 18, padding: "6px 8px 18px" }}>
-          <span className="logo">▦</span> QR Studio
+          <span className="logo">▦</span> India QRCode
         </div>
         {[["overview", "▨ Dashboard"], ["create", "＋ Create QR"], ["codes", "▤ My QR Codes"], ["billing", "💳 Billing & Plan"], ["analytics", "📈 Analytics"], ["support", "🛟 Support"], ["account", "👤 My Account"]].map(([id, label]) => (
           <div key={id} onClick={() => setTab(id)} style={navStyle(tab === id)}>{label}</div>
@@ -142,7 +142,7 @@ function openInvoice(o, settings, profile) {
   const b = taxBreakup(o.amount, RATE, o.tax_type);
   const taxable = b.taxable, gross = b.gross;
   const HSN = s.hsn || "998314";
-  const BIZ = s.biz_name || "QR Studio";
+  const BIZ = s.biz_name || "India QRCode";
   const ADDR = s.biz_address || "";
   const GSTIN = s.gstin ? "GSTIN: " + s.gstin : "GSTIN: __________ (set in Admin → Settings)";
   const LOGO = s.logo_url ? '<img src="' + s.logo_url + '" alt="logo" style="max-height:56px;max-width:180px;margin-bottom:8px"/><br/>' : "";
@@ -517,7 +517,7 @@ function loadLogoFile(file, setter) {
 
 function Create({ supabase, profile, onSaved, onNoCredit, flash }) {
   const [type, setType] = useState("url");
-  const [values, setValues] = useState({ url: "https://qrstudio.example.com" });
+  const [values, setValues] = useState({ url: "https://www.indiaqrcode.com" });
   const [fg, setFg] = useState("#181b3a");
   const [bg, setBg] = useState("#ffffff");
   const [dot, setDot] = useState("square");
@@ -1171,7 +1171,7 @@ function Analytics({ codes, scans, totalScans, initialCode }) {
       th{color:#5f6982;text-transform:uppercase;font-size:10px}
       .cols{display:flex;gap:40px}ul{font-size:13px;color:#333}
       </style></head><body>
-      <h1>QR Studio — Scan Report</h1>
+      <h1>India QRCode — Scan Report</h1>
       <div class="sub">${scopeLabel} · ${rangeLabel} · generated ${now.toLocaleString()}</div>
       <div class="kpis"><div class="kpi"><b>${evs.length}</b>scans in range</div><div class="kpi"><b>${totalScans}</b>total (all time)</div></div>
       <div class="cols"><div><h3>By device</h3><ul>${devHtml || "<li>—</li>"}</ul></div><div><h3>By country</h3><ul>${ctyHtml || "<li>—</li>"}</ul></div></div>

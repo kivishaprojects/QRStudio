@@ -182,7 +182,7 @@ export default function Admin() {
     const item = itemLabel(o);
     const date = new Date(o.paid_at || o.created_at).toLocaleString();
     const HSN = s.hsn || "998314";
-    const BIZ = s.biz_name || "QR Studio";
+    const BIZ = s.biz_name || "India QRCode";
     const ADDR = s.biz_address || "";
     const GSTIN = s.gstin ? "GSTIN: " + s.gstin : "GSTIN: __________";
     const LOGO = s.logo_url ? '<img src="' + s.logo_url + '" alt="logo" style="max-height:56px;max-width:180px;margin-bottom:8px"/><br/>' : "";
@@ -453,7 +453,7 @@ export default function Admin() {
               </div>
               <div style={{ marginBottom: 12 }}>
                 <label style={{ display: "block", fontSize: 12.5, color: "var(--soft)", marginBottom: 5 }}>Business name (on invoice)</label>
-                <input value={sform.biz_name} onChange={(e) => setSform({ ...sform, biz_name: e.target.value })} placeholder="QR Studio" style={inp} />
+                <input value={sform.biz_name} onChange={(e) => setSform({ ...sform, biz_name: e.target.value })} placeholder="India QRCode" style={inp} />
               </div>
               <div style={{ marginBottom: 12 }}>
                 <label style={{ display: "block", fontSize: 12.5, color: "var(--soft)", marginBottom: 5 }}>Business address</label>

@@ -21,7 +21,7 @@ export default function Home() {
       <header style={{ position: "sticky", top: 0, zIndex: 50, background: "rgba(255,255,255,.82)", backdropFilter: "blur(12px)", borderBottom: "1px solid var(--line)" }}>
         <div className="container" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", height: 70 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 11, fontWeight: 800, fontSize: 19 }}>
-            <span className="logo">▦</span> QR Studio
+            <span className="logo">▦</span> India QRCode
           </div>
           <div style={{ display: "flex", gap: 12 }}>
             <Link className="btn btn-ghost" href="/login">Log in</Link>
@@ -94,7 +94,7 @@ export default function Home() {
       </section>
 
       <footer style={{ borderTop: "1px solid var(--line)", padding: "40px 0", textAlign: "center", color: "var(--soft)", fontSize: 13 }}>
-        © 2026 QR Studio · Developed By : Jupiter Technologies : Made in India
+        © 2026 India QRCode · Developed By : Jupiter Technologies : Made in India
       </footer>
     </main>
   );
