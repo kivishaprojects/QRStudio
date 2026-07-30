@@ -10,7 +10,7 @@ export default function Admin() {
   const router = useRouter();
   const supabase = supabaseBrowser();
   const [me, setMe] = useState(null);
-  const [data, setData] = useState({ users: [], codes: [], txns: [], orders: [], settings: null });
+  const [data, setData] = useState({ users: [], codes: [], txns: [], orders: [], settings: null, tickets: [] });
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState("overview");
   const [msg, setMsg] = useState("");
@@ -30,14 +30,15 @@ export default function Admin() {
     const { data: prof } = await supabase.from("qr_profiles").select("*").eq("id", user.id).single();
     setMe(prof);
     if (prof?.role === "admin") {
-      const [{ data: users }, { data: codes }, { data: txns }, { data: orders }, { data: settings }] = await Promise.all([
+      const [{ data: users }, { data: codes }, { data: txns }, { data: orders }, { data: settings }, { data: tickets }] = await Promise.all([
         supabase.from("qr_profiles").select("*").order("created_at", { ascending: false }),
         supabase.from("qs_codes").select("*").order("created_at", { ascending: false }),
         supabase.from("qr_transactions").select("*").order("created_at", { ascending: false }),
         supabase.from("qs_orders").select("*").order("created_at", { ascending: false }),
         supabase.from("qs_settings").select("*").eq("id", 1).single(),
+        supabase.from("qs_tickets").select("*").order("updated_at", { ascending: false }),
       ]);
-      setData({ users: users || [], codes: codes || [], txns: txns || [], orders: orders || [], settings: settings || null });
+      setData({ users: users || [], codes: codes || [], txns: txns || [], orders: orders || [], settings: settings || null, tickets: tickets || [] });
       if (settings) setSform({ gst_rate: String(settings.gst_rate ?? 18), gstin: settings.gstin || "", biz_name: settings.biz_name || "", biz_address: settings.biz_address || "", hsn: settings.hsn || "", logo_url: settings.logo_url || "" });
       setAform({ phone: prof.phone || "" });
     }
@@ -142,7 +143,7 @@ export default function Admin() {
     );
   }
 
-  const { users, codes, txns, orders } = data;
+  const { users, codes, txns, orders, tickets } = data;
   const paying = users.filter((u) => u.plan !== "free").length;
   const totalScans = codes.reduce((a, c) => a + (c.scans || 0), 0);
   const revenue = txns.reduce((a, t) => a + (t.amount || 0), 0);
@@ -228,9 +229,15 @@ export default function Admin() {
     <div style={{ display: "grid", gridTemplateColumns: "230px 1fr", minHeight: "100vh" }}>
       <aside style={{ background: "var(--bg2)", borderRight: "1px solid var(--line)", padding: "20px 15px", position: "sticky", top: 0, height: "100vh" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, fontWeight: 800, fontSize: 17, padding: "6px 8px 18px" }}><span className="logo">▦</span> Admin</div>
-        {[["overview", "▨ Overview"], ["users", "👥 Users"], ["revenue", "₹ Revenue"], ["bills", "🧾 Bills Generated"], ["codes", "▤ QR Codes"], ["settings", "⚙ Settings"]].map(([id, l]) => (
-          <div key={id} onClick={() => setTab(id)} style={{ padding: "11px 13px", borderRadius: 11, marginBottom: 3, fontSize: 14, cursor: "pointer", color: tab === id ? "#fff" : "var(--soft)", background: tab === id ? "linear-gradient(135deg,var(--brand),var(--brand2))" : "transparent" }}>{l}</div>
-        ))}
+        {[["overview", "▨ Overview"], ["users", "👥 Users"], ["revenue", "₹ Revenue"], ["bills", "🧾 Bills Generated"], ["codes", "▤ QR Codes"], ["support", "🛟 Support"], ["settings", "⚙ Settings"]].map(([id, l]) => {
+          const openCount = id === "support" ? (data.tickets || []).filter((t) => t.status === "open" || t.status === "in_progress").length : 0;
+          return (
+          <div key={id} onClick={() => setTab(id)} style={{ padding: "11px 13px", borderRadius: 11, marginBottom: 3, fontSize: 14, cursor: "pointer", color: tab === id ? "#fff" : "var(--soft)", background: tab === id ? "linear-gradient(135deg,var(--brand),var(--brand2))" : "transparent", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span>{l}</span>
+            {openCount > 0 && <span style={{ background: tab === id ? "rgba(255,255,255,.25)" : "var(--gold)", color: "#fff", borderRadius: 20, fontSize: 11, fontWeight: 700, padding: "1px 7px" }}>{openCount}</span>}
+          </div>
+          );
+        })}
         <Link href="/dashboard" style={{ padding: "11px 13px", display: "block", fontSize: 14, color: "var(--soft)", marginTop: 8 }}>← User dashboard</Link>
       </aside>
       <div style={{ padding: "26px 28px 60px" }}>
@@ -380,6 +387,10 @@ export default function Admin() {
           </>
         )}
 
+        {tab === "support" && (
+          <AdminSupport supabase={supabase} tickets={tickets || []} emailById={emailById} nameById={nameById} onChange={load} flash={flash} />
+        )}
+
         {tab === "codes" && (
           <div className="card">
             <h3 style={{ fontSize: 16, marginBottom: 14 }}>All QR codes ({codes.length}) · {totalScans.toLocaleString()} scans</h3>
@@ -486,6 +497,126 @@ export default function Admin() {
 
 function K({ label, v }) {
   return <div className="card"><div style={{ fontSize: 13, color: "var(--soft)" }}>{label}</div><div style={{ fontFamily: "'Plus Jakarta Sans'", fontSize: 28, fontWeight: 800, marginTop: 8 }}>{v}</div></div>;
+}
+
+const TICKET_STATUS = {
+  open: { label: "Open", cls: "starter" },
+  in_progress: { label: "In progress", cls: "dyn" },
+  resolved: { label: "Resolved", cls: "pro" },
+  closed: { label: "Closed", cls: "free" },
+};
+function TStatus({ s }) {
+  const m = TICKET_STATUS[s] || { label: s, cls: "starter" };
+  return <span className={"pill " + m.cls}>{m.label}</span>;
+}
+
+function AdminSupport({ supabase, tickets, emailById, nameById, onChange, flash }) {
+  const [active, setActive] = useState(null);
+  const [messages, setMessages] = useState([]);
+  const [loadingMsg, setLoadingMsg] = useState(false);
+  const [reply, setReply] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [filter, setFilter] = useState("active"); // active | all | resolved
+
+  async function openTicket(t) {
+    setActive(t); setLoadingMsg(true); setMessages([]);
+    const { data } = await supabase.from("qs_ticket_messages").select("*").eq("ticket_id", t.id).order("created_at", { ascending: true });
+    setMessages(data || []); setLoadingMsg(false);
+  }
+  async function sendReply() {
+    if (!reply.trim()) return;
+    setBusy(true);
+    const { error } = await supabase.rpc("qr_add_ticket_message", { p_ticket: active.id, p_body: reply });
+    setBusy(false);
+    if (error) { flash("Error: " + error.message); return; }
+    setReply(""); openTicket(active); onChange();
+  }
+  async function setStatus(status) {
+    const { error } = await supabase.rpc("qr_set_ticket_status", { p_ticket: active.id, p_status: status });
+    if (error) { flash("Error: " + error.message); return; }
+    flash("Ticket marked " + status.replace("_", " ")); setActive({ ...active, status }); onChange();
+  }
+  const inp = { width: "100%", background: "#fff", border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px", color: "var(--txt)", fontFamily: "inherit", fontSize: 14 };
+
+  if (active) {
+    return (
+      <div className="card" style={{ maxWidth: 760 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8, gap: 10, flexWrap: "wrap" }}>
+          <div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}><h3 style={{ fontSize: 17 }}>{active.subject}</h3><TStatus s={active.status} /></div>
+            <div style={{ fontSize: 12, color: "var(--soft)", marginTop: 3 }}>#{String(active.ticket_no).padStart(5, "0")} · {emailById[active.user_id] || "user"} · {active.category} · {active.priority} · opened {new Date(active.created_at).toLocaleString()}</div>
+          </div>
+          <button className="btn btn-ghost btn-sm" onClick={() => { setActive(null); onChange(); }}>← All tickets</button>
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10, maxHeight: 360, overflowY: "auto", padding: "4px 2px", marginBottom: 14 }}>
+          {loadingMsg ? <p style={{ color: "var(--soft)", fontSize: 13 }}>Loading…</p> : messages.map((m) => {
+            const admin = m.is_admin;
+            return (
+              <div key={m.id} style={{ display: "flex", justifyContent: admin ? "flex-end" : "flex-start" }}>
+                <div style={{ maxWidth: "78%", background: admin ? "linear-gradient(135deg,var(--brand),var(--brand2))" : "var(--card2)", color: admin ? "#fff" : "var(--txt)", border: admin ? "none" : "1px solid var(--line)", borderRadius: 12, padding: "9px 12px" }}>
+                  <div style={{ fontSize: 11, opacity: 0.8, marginBottom: 3 }}>{admin ? "🛟 You (Support)" : (nameById[active.user_id] || "Customer")} · {new Date(m.created_at).toLocaleString()}</div>
+                  <div style={{ fontSize: 13.5, whiteSpace: "pre-wrap", lineHeight: 1.5 }}>{m.body}</div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <textarea value={reply} onChange={(e) => setReply(e.target.value)} placeholder="Reply to the customer…" rows={3} style={{ ...inp, resize: "vertical", marginBottom: 10 }} />
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "space-between" }}>
+          <button className="btn btn-primary btn-sm" onClick={sendReply} disabled={busy || !reply.trim()}>{busy ? "Sending…" : "Send reply"}</button>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            <button className="btn btn-ghost btn-sm" onClick={() => setStatus("in_progress")}>In progress</button>
+            <button className="btn btn-ghost btn-sm" style={{ color: "var(--accent)" }} onClick={() => setStatus("resolved")}>✓ Resolve</button>
+            <button className="btn btn-ghost btn-sm" onClick={() => setStatus("closed")}>Close</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const shown = tickets.filter((t) => filter === "all" ? true : filter === "resolved" ? (t.status === "resolved" || t.status === "closed") : (t.status === "open" || t.status === "in_progress"));
+  const counts = {
+    open: tickets.filter((t) => t.status === "open").length,
+    prog: tickets.filter((t) => t.status === "in_progress").length,
+    res: tickets.filter((t) => t.status === "resolved" || t.status === "closed").length,
+  };
+  return (
+    <>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: 16, marginBottom: 18 }}>
+        <K label="Open" v={counts.open} />
+        <K label="In progress" v={counts.prog} />
+        <K label="Resolved / closed" v={counts.res} />
+      </div>
+      <div className="card">
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, flexWrap: "wrap", gap: 8 }}>
+          <h3 style={{ fontSize: 16 }}>Support tickets ({shown.length})</h3>
+          <div style={{ display: "flex", gap: 6 }}>
+            {[["active", "Active"], ["resolved", "Resolved"], ["all", "All"]].map(([k, l]) => (
+              <button key={k} className={"btn btn-sm " + (filter === k ? "btn-primary" : "btn-ghost")} onClick={() => setFilter(k)}>{l}</button>
+            ))}
+          </div>
+        </div>
+        {shown.length === 0 ? <p style={{ color: "var(--soft)" }}>No tickets in this view.</p> : (
+          <div style={{ overflowX: "auto" }}>
+            <table><thead><tr><th>#</th><th>Subject</th><th>Customer</th><th>Category</th><th>Priority</th><th>Status</th><th>Last update</th><th></th></tr></thead>
+              <tbody>{shown.map((t) => (
+                <tr key={t.id}>
+                  <td style={{ color: "var(--soft)", fontSize: 12 }}>{String(t.ticket_no).padStart(5, "0")}</td>
+                  <td><b>{t.subject}</b></td>
+                  <td style={{ fontSize: 12.5 }}>{emailById[t.user_id] || "—"}</td>
+                  <td style={{ fontSize: 12.5 }}>{t.category}</td>
+                  <td style={{ fontSize: 12.5 }}>{t.priority}</td>
+                  <td><TStatus s={t.status} /></td>
+                  <td style={{ color: "var(--soft)", fontSize: 12 }}>{new Date(t.updated_at).toLocaleString()}</td>
+                  <td><button className="btn btn-ghost btn-sm" onClick={() => openTicket(t)}>Open</button></td>
+                </tr>
+              ))}</tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </>
+  );
 }
 
 function Overlay({ children, onClose }) {

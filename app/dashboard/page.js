@@ -37,6 +37,7 @@ export default function Dashboard() {
   const [scans, setScans] = useState([]);
   const [orders, setOrders] = useState([]);
   const [settings, setSettings] = useState(null);
+  const [tickets, setTickets] = useState([]);
   const [toast, setToast] = useState("");
   const [loading, setLoading] = useState(true);
 
@@ -44,7 +45,7 @@ export default function Dashboard() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { router.push("/login"); return; }
     await supabase.rpc("qr_ensure_profile", { p_name: null });
-    const [{ data: prof }, { data: pl }, { data: cs }, { data: tx }, { data: sc }, { data: od }, { data: st }] = await Promise.all([
+    const [{ data: prof }, { data: pl }, { data: cs }, { data: tx }, { data: sc }, { data: od }, { data: st }, { data: tk }] = await Promise.all([
       supabase.from("qr_profiles").select("*").eq("id", user.id).single(),
       supabase.from("qr_plans").select("*").order("sort"),
       supabase.from("qs_codes").select("*").order("created_at", { ascending: false }),
@@ -52,8 +53,9 @@ export default function Dashboard() {
       supabase.from("qs_scans").select("*").order("scanned_at", { ascending: false }).limit(1000),
       supabase.from("qs_orders").select("*").order("created_at", { ascending: false }),
       supabase.from("qs_settings").select("*").eq("id", 1).single(),
+      supabase.from("qs_tickets").select("*").order("updated_at", { ascending: false }),
     ]);
-    setProfile(prof); setPlans(pl || []); setCodes(cs || []); setTxns(tx || []); setScans(sc || []); setOrders(od || []); setSettings(st || null);
+    setProfile(prof); setPlans(pl || []); setCodes(cs || []); setTxns(tx || []); setScans(sc || []); setOrders(od || []); setSettings(st || null); setTickets(tk || []);
     setLoading(false);
   }, [router, supabase]);
 
@@ -90,7 +92,7 @@ export default function Dashboard() {
         <div style={{ display: "flex", alignItems: "center", gap: 10, fontWeight: 800, fontSize: 18, padding: "6px 8px 18px" }}>
           <span className="logo">▦</span> QR Studio
         </div>
-        {[["overview", "▨ Dashboard"], ["create", "＋ Create QR"], ["codes", "▤ My QR Codes"], ["billing", "💳 Billing & Plan"], ["analytics", "📈 Analytics"], ["account", "👤 My Account"]].map(([id, label]) => (
+        {[["overview", "▨ Dashboard"], ["create", "＋ Create QR"], ["codes", "▤ My QR Codes"], ["billing", "💳 Billing & Plan"], ["analytics", "📈 Analytics"], ["support", "🛟 Support"], ["account", "👤 My Account"]].map(([id, label]) => (
           <div key={id} onClick={() => setTab(id)} style={navStyle(tab === id)}>{label}</div>
         ))}
         {profile?.role === "admin" && <Link href="/admin" style={{ ...navStyle(false), color: "var(--gold)" }}>🛡 Admin Panel</Link>}
@@ -117,6 +119,7 @@ export default function Dashboard() {
           {tab === "codes" && <Codes codes={codes} setTab={setTab} supabase={supabase} onChange={load} flash={flash} onViewAnalytics={(id) => { setAnalyticsCode(id); setTab("analytics"); }} />}
           {tab === "billing" && <Billing supabase={supabase} profile={profile} plans={plans} txns={txns} orders={orders} settings={settings} onChange={load} flash={flash} />}
           {tab === "analytics" && <Analytics codes={codes} scans={scans} totalScans={totalScans} initialCode={analyticsCode} />}
+          {tab === "support" && <Support supabase={supabase} tickets={tickets} onChange={load} flash={flash} />}
           {tab === "account" && <Account supabase={supabase} profile={profile} plans={plans} orders={orders} settings={settings} onChange={load} flash={flash} />}
         </div>
       </div>
@@ -301,6 +304,156 @@ function Field({ label, children }) {
     <div className="field">
       <label>{label}</label>
       {children}
+    </div>
+  );
+}
+
+// ---- Support / ticket helpers (shared visual language) ----
+const TICKET_STATUS = {
+  open: { label: "Open", cls: "starter" },
+  in_progress: { label: "In progress", cls: "dyn" },
+  resolved: { label: "Resolved", cls: "pro" },
+  closed: { label: "Closed", cls: "free" },
+};
+function StatusPill({ s }) {
+  const m = TICKET_STATUS[s] || { label: s, cls: "starter" };
+  return <span className={"pill " + m.cls}>{m.label}</span>;
+}
+function ticketThreadStyles() {
+  return { area: { display: "flex", flexDirection: "column", gap: 10, maxHeight: 380, overflowY: "auto", padding: "4px 2px", marginBottom: 14 } };
+}
+function MsgBubble({ m }) {
+  const mine = !m.is_admin;
+  return (
+    <div style={{ display: "flex", justifyContent: mine ? "flex-end" : "flex-start" }}>
+      <div style={{ maxWidth: "78%", background: mine ? "linear-gradient(135deg,var(--brand),var(--brand2))" : "var(--card2)", color: mine ? "#fff" : "var(--txt)", border: mine ? "none" : "1px solid var(--line)", borderRadius: 12, padding: "9px 12px" }}>
+        <div style={{ fontSize: 11, opacity: 0.8, marginBottom: 3 }}>{m.is_admin ? "🛟 Support team" : "You"} · {new Date(m.created_at).toLocaleString()}</div>
+        <div style={{ fontSize: 13.5, whiteSpace: "pre-wrap", lineHeight: 1.5 }}>{m.body}</div>
+      </div>
+    </div>
+  );
+}
+
+function Support({ supabase, tickets, onChange, flash }) {
+  const [view, setView] = useState("list"); // list | new | thread
+  const [active, setActive] = useState(null);
+  const [messages, setMessages] = useState([]);
+  const [loadingMsg, setLoadingMsg] = useState(false);
+  const [reply, setReply] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [form, setForm] = useState({ subject: "", category: "General", priority: "Normal", message: "" });
+
+  async function openTicket(t) {
+    setActive(t); setView("thread"); setLoadingMsg(true); setMessages([]);
+    const { data } = await supabase.from("qs_ticket_messages").select("*").eq("ticket_id", t.id).order("created_at", { ascending: true });
+    setMessages(data || []); setLoadingMsg(false);
+  }
+  async function createTicket() {
+    if (!form.subject.trim() || !form.message.trim()) { flash("Add a subject and a message"); return; }
+    setBusy(true);
+    const { error } = await supabase.rpc("qr_create_ticket", { p_subject: form.subject, p_category: form.category, p_priority: form.priority, p_message: form.message });
+    setBusy(false);
+    if (error) { flash("Error: " + error.message); return; }
+    setForm({ subject: "", category: "General", priority: "Normal", message: "" });
+    setView("list"); flash("✅ Ticket created — we'll get back to you"); onChange();
+  }
+  async function sendReply() {
+    if (!reply.trim()) return;
+    setBusy(true);
+    const { error } = await supabase.rpc("qr_add_ticket_message", { p_ticket: active.id, p_body: reply });
+    setBusy(false);
+    if (error) { flash("Error: " + error.message); return; }
+    setReply(""); openTicket(active); onChange();
+  }
+  async function setStatus(status) {
+    const { error } = await supabase.rpc("qr_set_ticket_status", { p_ticket: active.id, p_status: status });
+    if (error) { flash("Error: " + error.message); return; }
+    flash(status === "closed" ? "Ticket closed" : "Ticket reopened");
+    setActive({ ...active, status }); onChange();
+  }
+  const th = ticketThreadStyles();
+  const inp = { width: "100%", background: "#fff", border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px", color: "var(--txt)", fontFamily: "inherit", fontSize: 14 };
+
+  if (view === "new") {
+    return (
+      <div className="card" style={{ maxWidth: 640 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+          <h3 style={{ fontSize: 17 }}>New support ticket</h3>
+          <button className="btn btn-ghost btn-sm" onClick={() => setView("list")}>← Back</button>
+        </div>
+        <Field label="Subject"><input value={form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })} placeholder="Brief summary of your issue" maxLength={200} /></Field>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <Field label="Category">
+            <select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} style={inp}>
+              {["General", "Billing & payments", "QR / technical", "Account", "Feature request"].map((c) => <option key={c}>{c}</option>)}
+            </select>
+          </Field>
+          <Field label="Priority">
+            <select value={form.priority} onChange={(e) => setForm({ ...form, priority: e.target.value })} style={inp}>
+              {["Low", "Normal", "High", "Urgent"].map((c) => <option key={c}>{c}</option>)}
+            </select>
+          </Field>
+        </div>
+        <Field label="Describe your issue">
+          <textarea value={form.message} onChange={(e) => setForm({ ...form, message: e.target.value })} placeholder="Tell us what's going on, with any steps or details that help." rows={6} style={{ ...inp, resize: "vertical" }} />
+        </Field>
+        <button className="btn btn-primary" onClick={createTicket} disabled={busy}>{busy ? "Submitting…" : "Submit ticket"}</button>
+      </div>
+    );
+  }
+
+  if (view === "thread" && active) {
+    return (
+      <div className="card" style={{ maxWidth: 720 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6, gap: 10, flexWrap: "wrap" }}>
+          <div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}><h3 style={{ fontSize: 17 }}>{active.subject}</h3><StatusPill s={active.status} /></div>
+            <div style={{ fontSize: 12, color: "var(--soft)", marginTop: 3 }}>Ticket #{String(active.ticket_no).padStart(5, "0")} · {active.category} · {active.priority} priority · opened {new Date(active.created_at).toLocaleString()}</div>
+          </div>
+          <button className="btn btn-ghost btn-sm" onClick={() => { setView("list"); onChange(); }}>← All tickets</button>
+        </div>
+        <div style={th.area}>
+          {loadingMsg ? <p style={{ color: "var(--soft)", fontSize: 13 }}>Loading conversation…</p> : messages.map((m) => <MsgBubble key={m.id} m={m} />)}
+        </div>
+        {active.status === "closed" ? (
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+            <span style={{ fontSize: 13, color: "var(--soft)" }}>This ticket is closed.</span>
+            <button className="btn btn-ghost btn-sm" onClick={() => setStatus("open")}>Reopen ticket</button>
+          </div>
+        ) : (
+          <>
+            <textarea value={reply} onChange={(e) => setReply(e.target.value)} placeholder="Type your reply…" rows={3} style={{ ...inp, resize: "vertical", marginBottom: 10 }} />
+            <div style={{ display: "flex", gap: 10, justifyContent: "space-between", flexWrap: "wrap" }}>
+              <button className="btn btn-primary btn-sm" onClick={sendReply} disabled={busy || !reply.trim()}>{busy ? "Sending…" : "Send reply"}</button>
+              <button className="btn btn-ghost btn-sm" onClick={() => setStatus("closed")}>Close ticket</button>
+            </div>
+          </>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="card" style={{ maxWidth: 760 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+        <div><h3 style={{ fontSize: 17 }}>Support tickets</h3><p style={{ fontSize: 12.5, color: "var(--soft)", marginTop: 2 }}>Raise a ticket and our team will help you out.</p></div>
+        <button className="btn btn-primary btn-sm" onClick={() => setView("new")}>＋ New ticket</button>
+      </div>
+      {(!tickets || tickets.length === 0) ? (
+        <p style={{ color: "var(--soft)" }}>You haven't raised any tickets yet.</p>
+      ) : (
+        <table><thead><tr><th>#</th><th>Subject</th><th>Category</th><th>Status</th><th>Last update</th></tr></thead>
+          <tbody>{tickets.map((t) => (
+            <tr key={t.id} style={{ cursor: "pointer" }} onClick={() => openTicket(t)}>
+              <td style={{ color: "var(--soft)", fontSize: 12 }}>{String(t.ticket_no).padStart(5, "0")}</td>
+              <td><b>{t.subject}</b></td>
+              <td style={{ fontSize: 12.5 }}>{t.category}</td>
+              <td><StatusPill s={t.status} /></td>
+              <td style={{ color: "var(--soft)", fontSize: 12 }}>{new Date(t.updated_at).toLocaleString()}</td>
+            </tr>
+          ))}</tbody>
+        </table>
+      )}
     </div>
   );
 }
