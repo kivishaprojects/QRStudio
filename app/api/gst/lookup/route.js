@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseServer } from "../../../../lib/supabaseServer";
+import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 import { gstVerifyConfigured, verifyGstin } from "../../../../lib/cashfree";
 import { isValidGstin, normalizeGstin, stateFromGstin } from "../../../../lib/gst";
 
@@ -11,6 +12,13 @@ export async function POST(request) {
   const supabase = supabaseServer();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+
+  // Rate limit: this route calls a paid third-party API — cap per user.
+  const admin = supabaseAdmin();
+  if (admin) {
+    const { data: ok } = await admin.rpc("qr_rate_limit", { p_key: "gst:" + user.id, p_max: 20, p_window: 3600 });
+    if (ok === false) return NextResponse.json({ error: "Too many lookups — please try again later." }, { status: 429 });
+  }
 
   const body = await request.json().catch(() => ({}));
   const gstin = normalizeGstin(body.gstin);

@@ -1,16 +1,18 @@
 import { NextResponse } from "next/server";
+import crypto from "crypto";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 import { SITE_URL } from "../../../../lib/supabaseConfig";
 import { hasFeature } from "../../../../lib/features";
 
 export const dynamic = "force-dynamic";
 
-// Resolve the caller from their API key. Returns the profile or a NextResponse error.
+// Resolve the caller from their API key (matched against the stored SHA-256 hash).
 async function authKey(request, admin) {
   const hdr = request.headers.get("authorization") || "";
   const key = hdr.replace(/^Bearer\s+/i, "").trim() || request.headers.get("x-api-key") || "";
   if (!key) return { error: NextResponse.json({ error: "Missing API key" }, { status: 401 }) };
-  const { data: prof } = await admin.from("qr_profiles").select("*").eq("api_key", key).single();
+  const hash = crypto.createHash("sha256").update(key).digest("hex");
+  const { data: prof } = await admin.from("qr_profiles").select("*").eq("api_key_hash", hash).single();
   if (!prof) return { error: NextResponse.json({ error: "Invalid API key" }, { status: 401 }) };
   if (!hasFeature(prof, "api")) return { error: NextResponse.json({ error: "API access is not enabled on this account" }, { status: 403 }) };
   return { prof };

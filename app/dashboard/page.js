@@ -326,7 +326,7 @@ function ProTools({ supabase, profile, onChange, flash, onUpgrade }) {
   const [bulkDyn, setBulkDyn] = useState(true);
   const [bulkBusy, setBulkBusy] = useState(false);
   const [apiBusy, setApiBusy] = useState(false);
-  const [showKey, setShowKey] = useState(false);
+  const [newKey, setNewKey] = useState("");
   const inp = { width: "100%", background: "#fff", border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px", color: "var(--txt)", fontFamily: "inherit", fontSize: 14 };
 
   const rows = bulkText.split("\n").map((l) => l.trim()).filter(Boolean).map((line) => {
@@ -346,16 +346,16 @@ function ProTools({ supabase, profile, onChange, flash, onUpgrade }) {
   }
   async function genKey() {
     setApiBusy(true);
-    const { error } = await supabase.rpc("qr_generate_api_key");
+    const { data, error } = await supabase.rpc("qr_generate_api_key");
     setApiBusy(false);
     if (error) { flash(error.message === "pro_required" ? "API access is a Pro feature" : "Error: " + error.message); return; }
-    setShowKey(true); flash("✅ API key generated"); onChange();
+    setNewKey(data || ""); flash("✅ API key generated — copy it now"); onChange();
   }
   async function revokeKey() {
     if (!window.confirm("Revoke the current API key? Any integrations using it will stop working.")) return;
     const { error } = await supabase.rpc("qr_revoke_api_key");
     if (error) { flash("Error: " + error.message); return; }
-    flash("API key revoked"); onChange();
+    setNewKey(""); flash("API key revoked"); onChange();
   }
 
   const ProGate = ({ children }) => (
@@ -392,16 +392,23 @@ function ProTools({ supabase, profile, onChange, flash, onUpgrade }) {
           <>
             <div style={{ marginBottom: 12 }}>
               <label style={{ display: "block", fontSize: 12.5, color: "var(--soft)", marginBottom: 5 }}>Your API key</label>
-              {profile?.api_key ? (
+              {newKey ? (
+                <div style={{ background: "#fff8e6", border: "1px solid var(--gold)", borderRadius: 10, padding: 12 }}>
+                  <div style={{ fontSize: 12, color: "var(--gold)", fontWeight: 700, marginBottom: 6 }}>⚠ Copy this now — it won’t be shown again.</div>
+                  <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                    <code style={{ background: "#fff", border: "1px solid var(--line)", borderRadius: 8, padding: "8px 10px", fontSize: 12.5, wordBreak: "break-all", flex: 1, minWidth: 180 }}>{newKey}</code>
+                    <button className="btn btn-ghost btn-sm" onClick={() => { navigator.clipboard && navigator.clipboard.writeText(newKey); flash("Copied"); }}>Copy</button>
+                  </div>
+                </div>
+              ) : profile?.api_key_hint ? (
                 <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                  <code style={{ background: "var(--card2)", border: "1px solid var(--line)", borderRadius: 8, padding: "8px 10px", fontSize: 12.5, wordBreak: "break-all", flex: 1, minWidth: 180 }}>{showKey ? profile.api_key : profile.api_key.slice(0, 10) + "••••••••••••••••"}</code>
-                  <button className="btn btn-ghost btn-sm" onClick={() => setShowKey(!showKey)}>{showKey ? "Hide" : "Reveal"}</button>
-                  <button className="btn btn-ghost btn-sm" onClick={() => { navigator.clipboard && navigator.clipboard.writeText(profile.api_key); flash("Copied"); }}>Copy</button>
+                  <code style={{ background: "var(--card2)", border: "1px solid var(--line)", borderRadius: 8, padding: "8px 10px", fontSize: 12.5, flex: 1, minWidth: 180 }}>{profile.api_key_hint}</code>
+                  <span style={{ fontSize: 11.5, color: "var(--soft)" }}>Stored securely (hashed). Rotate to get a new one.</span>
                 </div>
               ) : <p style={{ fontSize: 13, color: "var(--soft)" }}>No API key yet.</p>}
               <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-                <button className="btn btn-primary btn-sm" onClick={genKey} disabled={apiBusy}>{apiBusy ? "…" : profile?.api_key ? "Rotate key" : "Generate key"}</button>
-                {profile?.api_key && <button className="btn btn-ghost btn-sm" onClick={revokeKey}>Revoke</button>}
+                <button className="btn btn-primary btn-sm" onClick={genKey} disabled={apiBusy}>{apiBusy ? "…" : profile?.api_key_hint ? "Rotate key" : "Generate key"}</button>
+                {profile?.api_key_hint && <button className="btn btn-ghost btn-sm" onClick={revokeKey}>Revoke</button>}
               </div>
             </div>
             <div style={{ background: "var(--card2)", border: "1px solid var(--line)", borderRadius: 10, padding: 14, fontSize: 12.5, lineHeight: 1.6 }}>

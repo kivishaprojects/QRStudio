@@ -18,6 +18,7 @@ export default function Admin() {
   const [sform, setSform] = useState({ gst_rate: "18", gstin: "", biz_name: "", biz_address: "", hsn: "", logo_url: "" });
   const [savingSet, setSavingSet] = useState(false);
   const [busy, setBusy] = useState("");        // id of the row currently acting
+  const [needs2fa, setNeeds2fa] = useState(false);
   const [userView, setUserView] = useState(null); // selected user for detail modal
   const [codeView, setCodeView] = useState(null); // selected code for detail modal
   const [aform, setAform] = useState({ phone: "" });
@@ -31,6 +32,14 @@ export default function Admin() {
     const { data: prof } = await supabase.from("qr_profiles").select("*").eq("id", user.id).single();
     setMe(prof);
     if (prof?.role === "admin") {
+      // 2FA step-up: if an MFA factor is enrolled, require an AAL2 session.
+      try {
+        const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+        if (aal && aal.nextLevel === "aal2" && aal.currentLevel !== "aal2") {
+          setNeeds2fa(true); setLoading(false); return;
+        }
+      } catch (_) {}
+      setNeeds2fa(false);
       const [{ data: users }, { data: codes }, { data: txns }, { data: orders }, { data: settings }, { data: tickets }, { data: coupons }, { data: audit }] = await Promise.all([
         supabase.from("qr_profiles").select("*").order("created_at", { ascending: false }),
         supabase.from("qs_codes").select("*").order("created_at", { ascending: false }),
@@ -130,6 +139,8 @@ export default function Admin() {
   }
 
   if (loading) return <div style={{ padding: 60, textAlign: "center", color: "var(--soft)" }}>Loading…</div>;
+
+  if (needs2fa) return <TwoFAChallenge supabase={supabase} onVerified={() => { setLoading(true); load(); }} onSignOut={async () => { await supabase.auth.signOut(); router.push("/login"); }} />;
 
   if (me?.role !== "admin") {
     return (
@@ -512,6 +523,8 @@ export default function Admin() {
               </div>
               <p style={{ fontSize: 11.5, color: "var(--soft)", marginTop: 12 }}>Password changes go through a secure email link. To recover a forgotten password from the login screen, use “Forgot password?”.</p>
             </div>
+
+            <TwoFAEnroll supabase={supabase} flash={flash} />
           </div>
         )}
       </div>
@@ -524,6 +537,106 @@ export default function Admin() {
 
 function K({ label, v }) {
   return <div className="card"><div style={{ fontSize: 13, color: "var(--soft)" }}>{label}</div><div style={{ fontFamily: "'Plus Jakarta Sans'", fontSize: 28, fontWeight: 800, marginTop: 8 }}>{v}</div></div>;
+}
+
+// Step-up challenge shown when an admin with 2FA hasn't verified this session.
+function TwoFAChallenge({ supabase, onVerified, onSignOut }) {
+  const [code, setCode] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  async function verify(e) {
+    e.preventDefault();
+    setErr(""); setBusy(true);
+    try {
+      const { data: factors } = await supabase.auth.mfa.listFactors();
+      const totp = (factors?.totp || [])[0] || (factors?.all || []).find((f) => f.factor_type === "totp" && f.status === "verified");
+      if (!totp) { setErr("No authenticator found."); setBusy(false); return; }
+      const { error } = await supabase.auth.mfa.challengeAndVerify({ factorId: totp.id, code: code.trim() });
+      if (error) { setErr(error.message); setBusy(false); return; }
+      onVerified();
+    } catch (e2) { setErr(e2.message); setBusy(false); }
+  }
+  return (
+    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+      <form onSubmit={verify} className="card" style={{ maxWidth: 380, width: "100%", textAlign: "center" }}>
+        <div style={{ fontSize: 32, marginBottom: 8 }}>🔐</div>
+        <h2 style={{ fontSize: 20 }}>Two-factor verification</h2>
+        <p style={{ color: "var(--soft)", fontSize: 13.5, margin: "8px 0 16px" }}>Enter the 6-digit code from your authenticator app to access the admin panel.</p>
+        <input value={code} onChange={(e) => setCode(e.target.value.replace(/[^0-9]/g, "").slice(0, 6))} placeholder="123456" inputMode="numeric" maxLength={6} style={{ width: "100%", textAlign: "center", letterSpacing: 6, fontSize: 22, background: "#fff", border: "1px solid var(--line)", borderRadius: 10, padding: "12px", marginBottom: 12 }} autoFocus />
+        {err && <div style={{ color: "#c0392b", fontSize: 13, marginBottom: 10 }}>{err}</div>}
+        <button className="btn btn-primary" style={{ width: "100%", justifyContent: "center" }} disabled={busy || code.length < 6}>{busy ? "Verifying…" : "Verify"}</button>
+        <button type="button" onClick={onSignOut} style={{ marginTop: 12, fontSize: 12.5, color: "var(--soft)", background: "none", border: "none", cursor: "pointer" }}>Sign out</button>
+      </form>
+    </div>
+  );
+}
+
+// Admin 2FA enrollment / management (TOTP).
+function TwoFAEnroll({ supabase, flash }) {
+  const [factors, setFactors] = useState([]);
+  const [enroll, setEnroll] = useState(null); // { id, qr, secret }
+  const [code, setCode] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function refresh() {
+    const { data } = await supabase.auth.mfa.listFactors();
+    setFactors((data?.totp || []).filter((f) => f.status === "verified"));
+  }
+  useEffect(() => { refresh(); /* eslint-disable-next-line */ }, []);
+
+  async function start() {
+    setBusy(true);
+    const { data, error } = await supabase.auth.mfa.enroll({ factorType: "totp", friendlyName: "Admin " + Date.now() });
+    setBusy(false);
+    if (error) { flash("Error: " + error.message); return; }
+    setEnroll({ id: data.id, qr: data.totp.qr_code, secret: data.totp.secret });
+  }
+  async function confirm() {
+    setBusy(true);
+    const { error } = await supabase.auth.mfa.challengeAndVerify({ factorId: enroll.id, code: code.trim() });
+    setBusy(false);
+    if (error) { flash("Error: " + error.message); return; }
+    setEnroll(null); setCode(""); flash("✅ Two-factor authentication enabled"); refresh();
+  }
+  async function remove(id) {
+    if (!window.confirm("Disable two-factor authentication?")) return;
+    const { error } = await supabase.auth.mfa.unenroll({ factorId: id });
+    if (error) flash("Error: " + error.message); else { flash("Two-factor disabled"); refresh(); }
+  }
+
+  return (
+    <div className="card">
+      <h3 style={{ fontSize: 16, marginBottom: 4 }}>Two-factor authentication (2FA)</h3>
+      <p style={{ fontSize: 13, color: "var(--soft)", marginBottom: 14 }}>Protect the admin panel with a time-based code from an authenticator app (Google Authenticator, Authy, etc.).</p>
+
+      {factors.length > 0 && (
+        <div style={{ marginBottom: 14 }}>
+          {factors.map((f) => (
+            <div key={f.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid var(--line)" }}>
+              <span style={{ fontSize: 13.5 }}>🔐 Authenticator enabled <span className="pill pro" style={{ marginLeft: 6 }}>active</span></span>
+              <button className="btn btn-ghost btn-sm" style={{ color: "#c0392b" }} onClick={() => remove(f.id)}>Disable</button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {!enroll ? (
+        factors.length === 0 && <button className="btn btn-primary btn-sm" onClick={start} disabled={busy}>{busy ? "…" : "Enable 2FA"}</button>
+      ) : (
+        <div style={{ background: "var(--card2)", border: "1px solid var(--line)", borderRadius: 10, padding: 14 }}>
+          <p style={{ fontSize: 13, marginBottom: 10 }}>1. Scan this QR code in your authenticator app:</p>
+          <div style={{ background: "#fff", padding: 10, borderRadius: 8, display: "inline-block" }} dangerouslySetInnerHTML={{ __html: enroll.qr }} />
+          <p style={{ fontSize: 12, color: "var(--soft)", margin: "10px 0" }}>Or enter this key manually: <code style={{ wordBreak: "break-all" }}>{enroll.secret}</code></p>
+          <p style={{ fontSize: 13, marginBottom: 6 }}>2. Enter the 6-digit code to confirm:</p>
+          <div style={{ display: "flex", gap: 8 }}>
+            <input value={code} onChange={(e) => setCode(e.target.value.replace(/[^0-9]/g, "").slice(0, 6))} placeholder="123456" inputMode="numeric" maxLength={6} style={{ flex: 1, background: "#fff", border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px", fontSize: 16, letterSpacing: 4, textAlign: "center" }} />
+            <button className="btn btn-primary btn-sm" onClick={confirm} disabled={busy || code.length < 6}>{busy ? "…" : "Confirm"}</button>
+          </div>
+          <button className="btn btn-ghost btn-sm" style={{ marginTop: 10 }} onClick={() => setEnroll(null)}>Cancel</button>
+        </div>
+      )}
+    </div>
+  );
 }
 
 const TICKET_STATUS = {
@@ -745,12 +858,14 @@ function UserModal({ u, codes, orders, txns, itemLabel, supabase, flash, onChang
     setBusy("");
     if (error) flash("Error: " + error.message); else { flash("✅ Updated"); refresh(); }
   }
+  const [newKey, setNewKey] = useState("");
   async function setApiKey(generate) {
     if (!generate && !window.confirm("Revoke this user's API key?")) return;
     setBusy("api_key");
-    const { error } = await supabase.rpc("qr_admin_set_api_key", { p_user: u.id, p_generate: generate });
+    const { data, error } = await supabase.rpc("qr_admin_set_api_key", { p_user: u.id, p_generate: generate });
     setBusy("");
-    if (error) flash("Error: " + error.message); else { flash(generate ? "✅ API key generated" : "API key revoked"); refresh(); }
+    if (error) flash("Error: " + error.message);
+    else { setNewKey(generate ? (data || "") : ""); flash(generate ? "✅ API key generated — copy it now" : "API key revoked"); refresh(); }
   }
 
   const uCodes = codes.filter((c) => c.user_id === u.id);
@@ -800,13 +915,22 @@ function UserModal({ u, codes, orders, txns, itemLabel, supabase, flash, onChang
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, padding: "10px 0" }}>
         <div>
           <div style={{ fontSize: 13.5, fontWeight: 600 }}>API key</div>
-          <div style={{ fontSize: 11.5, color: "var(--soft)", wordBreak: "break-all" }}>{prof.api_key ? prof.api_key.slice(0, 14) + "••••••" : "None issued"}</div>
+          <div style={{ fontSize: 11.5, color: "var(--soft)", wordBreak: "break-all" }}>{prof.api_key_hint || "None issued"}</div>
         </div>
         <div style={{ display: "flex", gap: 5 }}>
-          <button className="btn btn-ghost btn-sm" disabled={busy === "api_key"} onClick={() => setApiKey(true)}>{prof.api_key ? "Rotate" : "Generate"}</button>
-          {prof.api_key && <button className="btn btn-ghost btn-sm" style={{ color: "#c0392b" }} disabled={busy === "api_key"} onClick={() => setApiKey(false)}>Revoke</button>}
+          <button className="btn btn-ghost btn-sm" disabled={busy === "api_key"} onClick={() => setApiKey(true)}>{prof.api_key_hint ? "Rotate" : "Generate"}</button>
+          {prof.api_key_hint && <button className="btn btn-ghost btn-sm" style={{ color: "#c0392b" }} disabled={busy === "api_key"} onClick={() => setApiKey(false)}>Revoke</button>}
         </div>
       </div>
+      {newKey && (
+        <div style={{ background: "#fff8e6", border: "1px solid var(--gold)", borderRadius: 10, padding: 12, marginBottom: 6 }}>
+          <div style={{ fontSize: 11.5, color: "var(--gold)", fontWeight: 700, marginBottom: 6 }}>⚠ Copy this key now — it won’t be shown again.</div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            <code style={{ background: "#fff", border: "1px solid var(--line)", borderRadius: 8, padding: "8px 10px", fontSize: 12, wordBreak: "break-all", flex: 1 }}>{newKey}</code>
+            <button className="btn btn-ghost btn-sm" onClick={() => { navigator.clipboard && navigator.clipboard.writeText(newKey); flash("Copied"); }}>Copy</button>
+          </div>
+        </div>
+      )}
 
       <h4 style={{ fontSize: 13, textTransform: "uppercase", color: "var(--soft)", margin: "16px 0 4px" }}>Account &amp; payments — ₹{spent.toLocaleString()} paid</h4>
       {uOrders.length === 0 ? <p style={{ color: "var(--soft)", fontSize: 13 }}>No payment orders.</p> : (

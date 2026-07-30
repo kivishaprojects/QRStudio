@@ -13,6 +13,10 @@ export async function POST(request) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ valid: false, error: "Not authenticated" }, { status: 401 });
 
+  // Rate limit coupon guessing per user.
+  const { data: ok } = await admin.rpc("qr_rate_limit", { p_key: "coupon:" + user.id, p_max: 20, p_window: 60 });
+  if (ok === false) return NextResponse.json({ valid: false, error: "Too many attempts — please wait a moment." }, { status: 429 });
+
   const body = await request.json().catch(() => ({}));
   const code = normalizeCoupon(body.coupon);
   const amount = Number(body.amount) || 0;
