@@ -3,7 +3,18 @@ import { useEffect, useState, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabaseBrowser } from "../../lib/supabaseBrowser";
+import { SITE_URL } from "../../lib/supabaseConfig";
 import QRCanvas, { drawQR } from "../../components/QRCanvas";
+
+// Dynamic codes (URL type) encode a redirect through /r/<id> so the destination
+// can be edited after printing and scans are tracked. Other types stay static.
+function isDynamicType(typeId) {
+  return typeId === "url";
+}
+function qrValueFor(code) {
+  if (code && code.dynamic && code.id) return `${SITE_URL}/r/${code.id}`;
+  return (code && code.content) || " ";
+}
 
 const TYPES = [
   { id: "url", icon: "🔗", name: "URL", fields: [{ k: "url", label: "URL", ph: "https://site.com", val: "https://qrstudio.example.com" }], build: (v) => v.url || "" },
@@ -148,7 +159,7 @@ function Create({ supabase, profile, onSaved, onNoCredit, flash }) {
     if (noCredit) { onNoCredit(); return; }
     setSaving(true);
     const { error } = await supabase.rpc("qr_save_code", {
-      p_name: name, p_type: t.name, p_content: data, p_style: { fg, bg, dot }, p_dynamic: profile.plan !== "free",
+      p_name: name, p_type: t.name, p_content: data, p_style: { fg, bg, dot }, p_dynamic: isDynamicType(type),
     });
     setSaving(false);
     if (error) { flash(error.message === "no_credits" ? "Out of credits — upgrade to continue" : "Error: " + error.message); if (error.message?.includes("credit")) onNoCredit(); return; }
@@ -199,7 +210,10 @@ function Create({ supabase, profile, onSaved, onNoCredit, flash }) {
         </button>
         <button className="btn btn-ghost" style={{ width: "100%", justifyContent: "center", marginTop: 9 }} onClick={download}>⬇ Download PNG (free)</button>
         <div style={{ marginTop: 14, fontSize: 12.5, color: "var(--soft)", background: "var(--card2)", border: "1px solid var(--line)", borderRadius: 10, padding: 11 }}>
-          You have <b style={{ color: "var(--gold)" }}>{profile?.credits ?? 0}</b> credit(s). Saving a trackable code uses 1. Downloads are always free.
+          You have <b style={{ color: "var(--gold)" }}>{profile?.credits ?? 0}</b> credit(s). Saving a code uses 1. Downloads are always free.
+          {isDynamicType(type)
+            ? " This is a dynamic QR — after saving, download it from My QR Codes so you can edit the link later and track scans."
+            : " This is a static QR (encodes the data directly)."}
         </div>
       </div>
     </div>
@@ -217,10 +231,12 @@ function Codes({ codes, setTab, supabase, onChange, flash }) {
 
   const style = (sel && sel.style) || {};
   const fg = style.fg || "#181b3a", bg = style.bg || "#ffffff", dot = style.dot || "square";
+  // Dynamic codes encode the redirect (constant); editing content changes where it points.
+  const qrData = sel ? (sel.dynamic ? `${SITE_URL}/r/${sel.id}` : (content || sel.content || " ")) : " ";
 
   function tempCanvas(size) {
     const c = document.createElement("canvas");
-    drawQR(c, { data: content || (sel && sel.content) || " ", fg, bg, dot, ecl: "M", size });
+    drawQR(c, { data: qrData, fg, bg, dot, ecl: "M", size });
     return c;
   }
   function download() {
@@ -291,12 +307,14 @@ function Codes({ codes, setTab, supabase, onChange, flash }) {
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: 20, alignItems: "start" }}>
               <div style={{ background: "#fff", borderRadius: 14, padding: 14, border: "1px solid var(--line)" }}>
-                <QRCanvas value={content || " "} fg={fg} bg={bg} dot={dot} ecl="M" display={180} />
+                <QRCanvas value={qrData} fg={fg} bg={bg} dot={dot} ecl="M" display={180} />
               </div>
               <div>
                 <div className="field"><label>Name</label><input value={name} onChange={(e) => setName(e.target.value)} /></div>
                 <div className="field"><label>Destination / content (edit the link here)</label><textarea value={content} onChange={(e) => setContent(e.target.value)} /></div>
-                <div style={{ fontSize: 12, color: "var(--soft)" }}>Scans: <b>{sel.scans}</b> · Type: {sel.type}</div>
+                <div style={{ fontSize: 12, color: "var(--soft)" }}>
+                  Scans: <b>{sel.scans}</b> · <span className={"pill " + (sel.dynamic ? "dyn" : "stat")}>{sel.dynamic ? "Dynamic" : "Static"}</span>
+                </div>
               </div>
             </div>
             <div style={{ display: "flex", gap: 9, flexWrap: "wrap", marginTop: 16 }}>
@@ -306,7 +324,11 @@ function Codes({ codes, setTab, supabase, onChange, flash }) {
               <button className="btn btn-ghost" onClick={del} disabled={busy} style={{ marginLeft: "auto", color: "var(--danger)" }}>🗑 Delete</button>
             </div>
             <div style={{ marginTop: 12, fontSize: 12, color: "var(--soft)", background: "var(--card2)", border: "1px solid var(--line)", borderRadius: 10, padding: 10 }}>
-              Editing changes what this QR encodes. After saving, <b>re-download or reprint</b> to use the updated code. (Editing does not cost a credit.)
+              {sel.dynamic ? (
+                <>This is a <b style={{ color: "var(--accent)" }}>dynamic QR</b>. The printed image never changes — just edit the destination above and Save, and every scan (even of already-printed codes) redirects to the new link. Scans are tracked automatically. (Editing is free.)</>
+              ) : (
+                <>This is a <b>static QR</b> — editing changes what it encodes, so <b>re-download or reprint</b> after saving. (Editing is free.)</>
+              )}
             </div>
           </div>
         </div>
@@ -350,7 +372,7 @@ function Billing({ supabase, profile, plans, txns, onChange, flash }) {
             <div className="card" key={p.id} style={{ border: cur ? "1px solid var(--accent)" : p.id === "growth" ? "1px solid var(--brand)" : undefined, display: "flex", flexDirection: "column" }}>
               <h4 style={{ fontSize: 16 }}>{p.name}</h4>
               <div style={{ fontFamily: "'Plus Jakarta Sans'", fontSize: 26, fontWeight: 800, margin: "8px 0 2px" }}>₹{p.price.toLocaleString()}{p.id !== "free" && <span style={{ fontSize: 13, color: "var(--soft)" }}>/yr</span>}</div>
-              <div style={{ fontSize: 12, color: "var(--accent)", marginBottom: 12 }}>{p.qr_included} QR{p.id !== "free" ? " · addons ₹" + p.addon_rate : " free"}</div>
+              <div style={{ fontSize: 12, color: "var(--accent)", marginBottom: 12 }}>{p.qr_included} QR{p.id === "free" ? " free" : ""} · addons ₹{p.addon_rate}/yr</div>
               <button className={"btn " + (cur ? "btn-ghost" : "btn-primary")} style={{ width: "100%", justifyContent: "center", marginTop: "auto" }} disabled={cur || busy || p.id === "free"} onClick={() => subscribe(p.id)}>{cur ? "Current plan" : p.id === "free" ? "Free" : "Subscribe"}</button>
             </div>
           );
@@ -358,7 +380,7 @@ function Billing({ supabase, profile, plans, txns, onChange, flash }) {
       </div>
       <div className="card" style={{ marginTop: 18 }}>
         <h3 style={{ fontSize: 16, marginBottom: 8 }}>Buy addon credits</h3>
-        <p style={{ color: "var(--soft)", fontSize: 13.5, marginBottom: 12 }}>Your addon rate: <b style={{ color: "var(--txt)" }}>₹{rate}</b> per credit (based on your plan).</p>
+        <p style={{ color: "var(--soft)", fontSize: 13.5, marginBottom: 12 }}>Your addon rate: <b style={{ color: "var(--txt)" }}>₹{rate}</b> per QR credit / year (based on your current plan — Free ₹499 · Starter ₹399 · Growth ₹299 · Pro ₹199).</p>
         <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
           <input type="number" min={1} value={qty} onChange={(e) => setQty(e.target.value)} style={{ width: 90, background: "#ffffff", border: "1px solid var(--line)", borderRadius: 10, padding: 10, color: "var(--txt)" }} />
           <span style={{ color: "var(--soft)", fontSize: 14 }}>× ₹{rate} = <b style={{ color: "var(--gold)" }}>₹{(rate * qty).toLocaleString()}</b></span>

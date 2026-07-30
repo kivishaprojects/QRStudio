@@ -9,10 +9,10 @@ const FEATURES = [
   ["🔒", "Secure & private", "Row-level security and privacy-friendly analytics."],
 ];
 const PLANS = [
-  ["Free", "₹0", "1 QR code free", ["1 free credit", "All content types", "PNG & SVG download"]],
-  ["Starter", "₹999/yr", "5 QR · addons ₹120", ["5 QR / year", "Dynamic + analytics", "Logo & colors"]],
-  ["Growth", "₹1,499/yr", "10 QR · addons ₹100", ["10 QR / year", "Everything in Starter", "Priority support"], true],
-  ["Pro", "₹2,499/yr", "20 QR · addons ₹80", ["20 QR / year", "Bulk + API", "Team access"]],
+  ["Free", "₹0", "1 QR free · addons ₹499", ["1 free credit", "Dynamic QR + scan tracking", "PNG & SVG download"]],
+  ["Starter", "₹999/yr", "5 QR · addons ₹399", ["5 QR / year", "Dynamic + analytics", "Logo & colors"]],
+  ["Growth", "₹1,499/yr", "10 QR · addons ₹299", ["10 QR / year", "Everything in Starter", "Priority support"], true],
+  ["Pro", "₹2,499/yr", "20 QR · addons ₹199", ["20 QR / year", "Bulk + API", "Team access"]],
 ];
 
 export default function Home() {
