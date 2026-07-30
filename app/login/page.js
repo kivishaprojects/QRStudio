@@ -49,6 +49,16 @@ function LoginInner() {
     }
   }
 
+  async function forgot() {
+    setMsg("");
+    if (!email) { setMsg("Enter your email above first, then click ‘Forgot password?’."); return; }
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}/auth/callback?next=/auth/reset`,
+    });
+    if (error) setMsg(error.message);
+    else setMsg("✅ If an account exists for " + email + ", a password-reset link is on its way.");
+  }
+
   async function google() {
     setMsg("");
     const { error } = await supabase.auth.signInWithOAuth({
@@ -87,7 +97,10 @@ function LoginInner() {
             <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@email.com" />
           </div>
           <div className="field">
-            <label>Password</label>
+            <label style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span>Password</span>
+              {mode === "login" && <a onClick={forgot} style={{ color: "var(--brand)", cursor: "pointer", fontSize: 12, fontWeight: 500 }}>Forgot password?</a>}
+            </label>
             <input type="password" required minLength={6} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" />
           </div>
           {msg && <div style={{ background: "var(--card2)", border: "1px solid var(--line)", borderRadius: 10, padding: 11, fontSize: 13, color: "var(--gold)", marginBottom: 12 }}>{msg}</div>}

@@ -3,6 +3,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabaseBrowser } from "../../lib/supabaseBrowser";
+import { SITE_URL } from "../../lib/supabaseConfig";
 
 export default function Admin() {
   const router = useRouter();
@@ -12,8 +13,14 @@ export default function Admin() {
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState("overview");
   const [msg, setMsg] = useState("");
-  const [sform, setSform] = useState({ gst_rate: "18", gstin: "", biz_name: "", biz_address: "", hsn: "" });
+  const [sform, setSform] = useState({ gst_rate: "18", gstin: "", biz_name: "", biz_address: "", hsn: "", logo_url: "" });
   const [savingSet, setSavingSet] = useState(false);
+  const [busy, setBusy] = useState("");        // id of the row currently acting
+  const [userView, setUserView] = useState(null); // selected user for detail modal
+  const [codeView, setCodeView] = useState(null); // selected code for detail modal
+  const [aform, setAform] = useState({ phone: "" });
+
+  const flash = (m) => { setMsg(m); setTimeout(() => setMsg(""), 3500); };
 
   const load = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
@@ -24,13 +31,14 @@ export default function Admin() {
     if (prof?.role === "admin") {
       const [{ data: users }, { data: codes }, { data: txns }, { data: orders }, { data: settings }] = await Promise.all([
         supabase.from("qr_profiles").select("*").order("created_at", { ascending: false }),
-        supabase.from("qs_codes").select("*"),
+        supabase.from("qs_codes").select("*").order("created_at", { ascending: false }),
         supabase.from("qr_transactions").select("*").order("created_at", { ascending: false }),
         supabase.from("qs_orders").select("*").order("created_at", { ascending: false }),
         supabase.from("qs_settings").select("*").eq("id", 1).single(),
       ]);
       setData({ users: users || [], codes: codes || [], txns: txns || [], orders: orders || [], settings: settings || null });
-      if (settings) setSform({ gst_rate: String(settings.gst_rate ?? 18), gstin: settings.gstin || "", biz_name: settings.biz_name || "", biz_address: settings.biz_address || "", hsn: settings.hsn || "" });
+      if (settings) setSform({ gst_rate: String(settings.gst_rate ?? 18), gstin: settings.gstin || "", biz_name: settings.biz_name || "", biz_address: settings.biz_address || "", hsn: settings.hsn || "", logo_url: settings.logo_url || "" });
+      setAform({ phone: prof.phone || "" });
     }
     setLoading(false);
   }, [router, supabase]);
@@ -41,10 +49,73 @@ export default function Admin() {
     const { error } = await supabase.rpc("qr_save_settings", {
       p_gst_rate: Number(sform.gst_rate) || 0, p_gstin: sform.gstin || null,
       p_biz_name: sform.biz_name || null, p_biz_address: sform.biz_address || null, p_hsn: sform.hsn || null,
+      p_logo_url: sform.logo_url || null,
     });
     setSavingSet(false);
-    if (error) setMsg("Error: " + error.message);
-    else { setMsg("✅ Settings saved"); load(); setTimeout(() => setMsg(""), 2500); }
+    if (error) flash("Error: " + error.message);
+    else { flash("✅ Settings saved"); load(); }
+  }
+
+  function onLogoPick(e) {
+    const f = e.target.files && e.target.files[0];
+    if (!f) return;
+    if (f.size > 400 * 1024) { flash("Logo too large — please use an image under 400 KB."); return; }
+    const rd = new FileReader();
+    rd.onload = () => setSform((s) => ({ ...s, logo_url: String(rd.result) }));
+    rd.readAsDataURL(f);
+  }
+
+  async function saveAdminPhone() {
+    const { error } = await supabase.rpc("qr_set_phone", { p_phone: aform.phone || null });
+    if (error) flash("Error: " + error.message); else { flash("✅ Mobile number updated"); load(); }
+  }
+
+  async function sendMyReset() {
+    if (!me?.email) return;
+    const { error } = await supabase.auth.resetPasswordForEmail(me.email, { redirectTo: `${window.location.origin}/auth/callback?next=/auth/reset` });
+    if (error) flash("Error: " + error.message); else flash("✅ Password-reset link sent to " + me.email);
+  }
+
+  async function holdUser(u, hold) {
+    setBusy(u.id);
+    const { error } = await supabase.rpc("qr_admin_set_user_hold", { p_user: u.id, p_hold: hold });
+    setBusy("");
+    if (error) flash("Error: " + error.message);
+    else { flash(hold ? "⏸ User put on hold" : "▶ User re-activated"); load(); }
+  }
+
+  async function resetUserPw(u) {
+    const { error } = await supabase.auth.resetPasswordForEmail(u.email, { redirectTo: `${window.location.origin}/auth/callback?next=/auth/reset` });
+    if (error) flash("Error: " + error.message); else flash("✅ Reset link sent to " + u.email);
+  }
+
+  async function deleteUser(u) {
+    if (!window.confirm(`Permanently delete ${u.email} and ALL their QR codes, scans and payment history? This cannot be undone.`)) return;
+    setBusy(u.id);
+    try {
+      const res = await fetch("/api/admin/delete-user", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ userId: u.id }) });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || "Delete failed");
+      flash("🗑 User deleted"); setUserView(null); load();
+    } catch (e) { flash("Error: " + e.message); }
+    setBusy("");
+  }
+
+  async function setCodeStatus(c, status) {
+    setBusy(c.id);
+    const { error } = await supabase.rpc("qr_admin_set_code_status", { p_id: c.id, p_status: status });
+    setBusy("");
+    if (error) flash("Error: " + error.message);
+    else { flash(status === "hold" ? "⏸ QR put on hold" : "▶ QR activated"); load(); }
+  }
+
+  async function deleteCode(c) {
+    if (!window.confirm(`Delete QR "${c.name}"? Its scan history will be removed and the short link will stop working.`)) return;
+    setBusy(c.id);
+    const { error } = await supabase.rpc("qr_admin_delete_code", { p_id: c.id });
+    setBusy("");
+    if (error) flash("Error: " + error.message);
+    else { flash("🗑 QR deleted"); setCodeView(null); load(); }
   }
 
   async function claimAdmin() {
@@ -77,6 +148,7 @@ export default function Admin() {
   const paidOrders = (orders || []).filter((o) => o.status === "paid");
   const paidRevenue = paidOrders.reduce((a, o) => a + (o.amount || 0), 0);
   const emailById = {}; users.forEach((u) => (emailById[u.id] = u.email));
+  const nameById = {}; users.forEach((u) => (nameById[u.id] = u.full_name || u.email));
   // last 12 months of paid revenue
   const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   const now = new Date();
@@ -87,39 +159,45 @@ export default function Admin() {
   const maxM = Math.max(1, ...months.map((m) => m.n));
 
   const RATE = Number((data.settings && data.settings.gst_rate) != null ? data.settings.gst_rate : 18);
+  const gstOf = (gross) => { const g = Number(gross) || 0; const taxable = +(g / (1 + RATE / 100)).toFixed(2); return { gross: g, taxable, gst: +(g - taxable).toFixed(2) }; };
+  const itemLabel = (o) => (o.kind === "plan" ? (o.plan || "plan") + " package" : (o.qty || "") + " addon credits");
+
   function exportGstCsv() {
     const head = ["Invoice No", "Invoice Date", "Customer", "Item", "GST Rate %", "Taxable Value", "CGST", "SGST", "Total (incl GST)", "Order ID"];
     const rows = paidOrders.map((o) => {
-      const gross = Number(o.amount) || 0;
-      const taxable = +(gross / (1 + RATE / 100)).toFixed(2);
-      const gst = +(gross - taxable).toFixed(2);
-      const half = +(gst / 2).toFixed(2);
-      const item = o.kind === "plan" ? (o.plan || "plan") + " package" : (o.qty || "") + " addon credits";
-      return [o.invoice_no || "", new Date(o.paid_at || o.created_at).toISOString().slice(0, 10), emailById[o.user_id] || "", item, RATE, taxable, half, half, gross, o.id];
+      const b = gstOf(o.amount); const half = +(b.gst / 2).toFixed(2);
+      return [o.invoice_no || "", new Date(o.paid_at || o.created_at).toISOString().slice(0, 10), emailById[o.user_id] || "", itemLabel(o), RATE, b.taxable, half, half, b.gross, o.id];
     });
     const csv = [head, ...rows].map((r) => r.map((v) => '"' + String(v).replace(/"/g, '""') + '"').join(",")).join("\n");
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
     const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "gst-report.csv"; a.click();
   }
   const inp = { width: "100%", background: "#ffffff", border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px", color: "var(--txt)", fontFamily: "inherit", fontSize: 14 };
-  const dist = ["starter", "growth", "pro"].map((id) => ({ id, n: users.filter((u) => u.plan === id).length }));
+  // Plan distribution now includes Free-plan (free login) users.
+  const dist = ["free", "starter", "growth", "pro"].map((id) => ({ id, n: users.filter((u) => u.plan === id).length }));
+  const distMax = Math.max(1, ...dist.map((d) => d.n));
 
   return (
     <div style={{ display: "grid", gridTemplateColumns: "230px 1fr", minHeight: "100vh" }}>
       <aside style={{ background: "var(--bg2)", borderRight: "1px solid var(--line)", padding: "20px 15px", position: "sticky", top: 0, height: "100vh" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, fontWeight: 800, fontSize: 17, padding: "6px 8px 18px" }}><span className="logo">▦</span> Admin</div>
-        {[["overview", "▨ Overview"], ["users", "👥 Users"], ["revenue", "₹ Revenue"], ["codes", "▤ QR Codes"], ["settings", "⚙ Settings"]].map(([id, l]) => (
+        {[["overview", "▨ Overview"], ["users", "👥 Users"], ["revenue", "₹ Revenue"], ["bills", "🧾 Bills Generated"], ["codes", "▤ QR Codes"], ["settings", "⚙ Settings"]].map(([id, l]) => (
           <div key={id} onClick={() => setTab(id)} style={{ padding: "11px 13px", borderRadius: 11, marginBottom: 3, fontSize: 14, cursor: "pointer", color: tab === id ? "#fff" : "var(--soft)", background: tab === id ? "linear-gradient(135deg,var(--brand),var(--brand2))" : "transparent" }}>{l}</div>
         ))}
         <Link href="/dashboard" style={{ padding: "11px 13px", display: "block", fontSize: 14, color: "var(--soft)", marginTop: 8 }}>← User dashboard</Link>
       </aside>
       <div style={{ padding: "26px 28px 60px" }}>
-        <h2 style={{ fontSize: 22, marginBottom: 20, textTransform: "capitalize" }}>{tab}</h2>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20, flexWrap: "wrap", gap: 8 }}>
+          <h2 style={{ fontSize: 22, textTransform: "capitalize" }}>{tab === "bills" ? "Bills Generated" : tab}</h2>
+          {msg && <div style={{ background: "var(--card2)", border: "1px solid var(--line)", borderRadius: 10, padding: "8px 12px", fontSize: 13, color: "var(--accent)" }}>{msg}</div>}
+        </div>
+
         {tab === "overview" && (
           <>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))", gap: 16, marginBottom: 20 }}>
               <K label="Total users" v={users.length} />
               <K label="Paying users" v={paying} />
+              <K label="Free-plan users" v={users.filter((u) => u.plan === "free").length} />
               <K label="Revenue (Cashfree)" v={"₹" + paidRevenue.toLocaleString()} />
               <K label="QR codes" v={codes.length} />
             </div>
@@ -127,21 +205,44 @@ export default function Admin() {
               <h3 style={{ fontSize: 16, marginBottom: 14 }}>Plan distribution</h3>
               {dist.map((d) => (
                 <div key={d.id} style={{ marginBottom: 10 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13.5, marginBottom: 5, textTransform: "capitalize" }}><span>{d.id}</span><b>{d.n}</b></div>
-                  <div style={{ background: "var(--card2)", borderRadius: 6, height: 10 }}><div style={{ width: (d.n / Math.max(1, paying) * 100) + "%", height: "100%", borderRadius: 6, background: "linear-gradient(90deg,var(--brand),var(--accent))" }} /></div>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13.5, marginBottom: 5, textTransform: "capitalize" }}><span>{d.id === "free" ? "Free (free login)" : d.id}</span><b>{d.n}</b></div>
+                  <div style={{ background: "var(--card2)", borderRadius: 6, height: 10 }}><div style={{ width: (d.n / distMax * 100) + "%", height: "100%", borderRadius: 6, background: d.id === "free" ? "linear-gradient(90deg,var(--gold),#d69e2e)" : "linear-gradient(90deg,var(--brand),var(--accent))" }} /></div>
                 </div>
               ))}
             </div>
           </>
         )}
+
         {tab === "users" && (
           <div className="card">
             <h3 style={{ fontSize: 16, marginBottom: 14 }}>All users ({users.length})</h3>
-            <table><thead><tr><th>Email</th><th>Name</th><th>Plan</th><th>Credits</th><th>Role</th><th>Joined</th></tr></thead>
-              <tbody>{users.map((u) => <tr key={u.id}><td>{u.email}</td><td>{u.full_name || "—"}</td><td><span className={"pill " + u.plan}>{u.plan}</span></td><td>{u.credits}</td><td>{u.role}</td><td style={{ color: "var(--soft)" }}>{new Date(u.created_at).toLocaleDateString()}</td></tr>)}</tbody>
-            </table>
+            <div style={{ overflowX: "auto" }}>
+              <table><thead><tr><th>Email</th><th>Name</th><th>Plan</th><th>Credits</th><th>Status</th><th>Joined</th><th>Actions</th></tr></thead>
+                <tbody>{users.map((u) => (
+                  <tr key={u.id}>
+                    <td>{u.email}</td>
+                    <td>{u.full_name || "—"}</td>
+                    <td><span className={"pill " + u.plan}>{u.plan}</span></td>
+                    <td>{u.credits}</td>
+                    <td>{u.role === "admin" ? <span className="pill pro">admin</span> : u.status === "hold" ? <span className="pill free">on hold</span> : <span className="pill starter">active</span>}</td>
+                    <td style={{ color: "var(--soft)" }}>{new Date(u.created_at).toLocaleDateString()}</td>
+                    <td>
+                      <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+                        <button className="btn btn-ghost btn-sm" title="View profile" onClick={() => setUserView(u)}>👁 View</button>
+                        {u.role !== "admin" && (u.status === "hold"
+                          ? <button className="btn btn-ghost btn-sm" disabled={busy === u.id} onClick={() => holdUser(u, false)}>▶ Unhold</button>
+                          : <button className="btn btn-ghost btn-sm" disabled={busy === u.id} onClick={() => holdUser(u, true)}>⏸ Hold</button>)}
+                        <button className="btn btn-ghost btn-sm" title="Send password reset" onClick={() => resetUserPw(u)}>🔑 Reset</button>
+                        {u.role !== "admin" && <button className="btn btn-ghost btn-sm" style={{ color: "#c0392b" }} disabled={busy === u.id} onClick={() => deleteUser(u)}>🗑 Delete</button>}
+                      </div>
+                    </td>
+                  </tr>
+                ))}</tbody>
+              </table>
+            </div>
           </div>
         )}
+
         {tab === "revenue" && (
           <>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))", gap: 16, marginBottom: 18 }}>
@@ -175,7 +276,7 @@ export default function Admin() {
                       <td style={{ color: "var(--soft)" }}>{new Date(o.created_at).toLocaleString()}</td>
                       <td style={{ color: "var(--soft)", fontSize: 12 }}>{o.invoice_no || "—"}</td>
                       <td>{emailById[o.user_id] || "—"}</td>
-                      <td>{o.kind === "plan" ? (o.plan || "plan") + " package" : (o.qty || "") + " addons"}</td>
+                      <td>{itemLabel(o)}</td>
                       <td><b>₹{o.amount}</b></td>
                       <td><span className={"pill " + (o.status === "paid" ? "pro" : o.status === "failed" ? "free" : "starter")}>{o.status}</span></td>
                     </tr>
@@ -191,49 +292,245 @@ export default function Admin() {
             </div>
           </>
         )}
+
+        {tab === "bills" && (
+          <>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))", gap: 16, marginBottom: 18 }}>
+              <K label="Bills generated" v={paidOrders.length} />
+              <K label="Total billed (incl GST)" v={"₹" + paidRevenue.toLocaleString()} />
+              <K label="Total tax (GST)" v={"₹" + paidOrders.reduce((a, o) => a + gstOf(o.amount).gst, 0).toLocaleString(undefined, { maximumFractionDigits: 2 })} />
+            </div>
+            <div className="card">
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, flexWrap: "wrap", gap: 8 }}>
+                <h3 style={{ fontSize: 16 }}>Bills / tax invoices ({paidOrders.length})</h3>
+                <button className="btn btn-primary btn-sm" onClick={exportGstCsv}>⬇ Export (CSV)</button>
+              </div>
+              {paidOrders.length === 0 ? <p style={{ color: "var(--soft)" }}>No bills generated yet. Bills appear here once a payment is received.</p> : (
+                <div style={{ overflowX: "auto" }}>
+                  <table><thead><tr><th>Date</th><th>Invoice No</th><th>Party name</th><th>Item</th><th>Amount</th><th>Tax (GST)</th><th>Payment mode</th><th>Total</th><th>Received</th></tr></thead>
+                    <tbody>{paidOrders.map((o) => {
+                      const b = gstOf(o.amount);
+                      return (
+                        <tr key={o.id}>
+                          <td style={{ color: "var(--soft)" }}>{new Date(o.paid_at || o.created_at).toLocaleDateString()}</td>
+                          <td style={{ fontSize: 12 }}>{o.invoice_no || "—"}</td>
+                          <td>{nameById[o.user_id] || emailById[o.user_id] || "—"}</td>
+                          <td>{itemLabel(o)}</td>
+                          <td>₹{b.taxable.toLocaleString()}</td>
+                          <td>₹{b.gst.toLocaleString()}</td>
+                          <td>{o.payment_mode || "Online (Cashfree)"}</td>
+                          <td><b>₹{b.gross.toLocaleString()}</b></td>
+                          <td><span className="pill pro">✓ Received</span></td>
+                        </tr>
+                      );
+                    })}</tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </>
+        )}
+
         {tab === "codes" && (
           <div className="card">
             <h3 style={{ fontSize: 16, marginBottom: 14 }}>All QR codes ({codes.length}) · {totalScans.toLocaleString()} scans</h3>
-            <table><thead><tr><th>Name</th><th>Type</th><th>Scans</th><th>Status</th></tr></thead>
-              <tbody>{codes.map((c) => <tr key={c.id}><td><b>{c.name}</b></td><td>{c.type}</td><td>{c.scans}</td><td><span className={"pill " + (c.dynamic ? "dyn" : "stat")}>{c.dynamic ? "Dynamic" : "Static"}</span></td></tr>)}</tbody>
-            </table>
+            <div style={{ overflowX: "auto" }}>
+              <table><thead><tr><th>Name</th><th>Owner</th><th>Type</th><th>Scans</th><th>Kind</th><th>Status</th><th>Actions</th></tr></thead>
+                <tbody>{codes.map((c) => (
+                  <tr key={c.id}>
+                    <td><b>{c.name}</b></td>
+                    <td style={{ color: "var(--soft)", fontSize: 12 }}>{emailById[c.user_id] || "—"}</td>
+                    <td>{c.type}</td>
+                    <td>{c.scans}</td>
+                    <td><span className={"pill " + (c.dynamic ? "dyn" : "stat")}>{c.dynamic ? "Dynamic" : "Static"}</span></td>
+                    <td>{c.status === "hold" ? <span className="pill free">on hold</span> : <span className="pill starter">active</span>}</td>
+                    <td>
+                      <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+                        <button className="btn btn-ghost btn-sm" onClick={() => setCodeView(c)}>👁 View</button>
+                        {c.status === "hold"
+                          ? <button className="btn btn-ghost btn-sm" disabled={busy === c.id} onClick={() => setCodeStatus(c, "active")}>▶ Activate</button>
+                          : <button className="btn btn-ghost btn-sm" disabled={busy === c.id} onClick={() => setCodeStatus(c, "hold")}>⏸ Hold</button>}
+                        <button className="btn btn-ghost btn-sm" style={{ color: "#c0392b" }} disabled={busy === c.id} onClick={() => deleteCode(c)}>🗑 Delete</button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}</tbody>
+              </table>
+            </div>
           </div>
         )}
+
         {tab === "settings" && (
-          <div className="card" style={{ maxWidth: 620 }}>
-            <h3 style={{ fontSize: 16, marginBottom: 4 }}>Tax &amp; business settings</h3>
-            <p style={{ fontSize: 13, color: "var(--soft)", marginBottom: 16 }}>These appear on customer invoices, receipts, and the GST report.</p>
-            {msg && <div style={{ color: "var(--accent)", fontSize: 13, marginBottom: 12 }}>{msg}</div>}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-              <div style={{ marginBottom: 12 }}>
-                <label style={{ display: "block", fontSize: 12.5, color: "var(--soft)", marginBottom: 5 }}>GST rate (%)</label>
-                <input type="number" step="0.1" value={sform.gst_rate} onChange={(e) => setSform({ ...sform, gst_rate: e.target.value })} style={inp} />
+          <div style={{ display: "grid", gap: 18, maxWidth: 640 }}>
+            <div className="card">
+              <h3 style={{ fontSize: 16, marginBottom: 4 }}>Tax &amp; business settings</h3>
+              <p style={{ fontSize: 13, color: "var(--soft)", marginBottom: 16 }}>These appear on customer invoices, receipts, and the GST report.</p>
+              <div style={{ marginBottom: 16 }}>
+                <label style={{ display: "block", fontSize: 12.5, color: "var(--soft)", marginBottom: 6 }}>Logo on bill / invoice</label>
+                <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
+                  <div style={{ width: 88, height: 88, border: "1px dashed var(--line)", borderRadius: 12, display: "flex", alignItems: "center", justifyContent: "center", background: "#fff", overflow: "hidden" }}>
+                    {sform.logo_url ? <img src={sform.logo_url} alt="logo" style={{ maxWidth: "100%", maxHeight: "100%" }} /> : <span style={{ fontSize: 11, color: "var(--soft)" }}>No logo</span>}
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    <label className="btn btn-ghost btn-sm" style={{ cursor: "pointer" }}>
+                      ⬆ Upload logo
+                      <input type="file" accept="image/*" onChange={onLogoPick} style={{ display: "none" }} />
+                    </label>
+                    {sform.logo_url && <button className="btn btn-ghost btn-sm" onClick={() => setSform((s) => ({ ...s, logo_url: "" }))}>Remove</button>}
+                    <span style={{ fontSize: 11.5, color: "var(--soft)" }}>PNG/JPG, under 400 KB. Shown at the top of every invoice.</span>
+                  </div>
+                </div>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                <div style={{ marginBottom: 12 }}>
+                  <label style={{ display: "block", fontSize: 12.5, color: "var(--soft)", marginBottom: 5 }}>GST rate (%)</label>
+                  <input type="number" step="0.1" value={sform.gst_rate} onChange={(e) => setSform({ ...sform, gst_rate: e.target.value })} style={inp} />
+                </div>
+                <div style={{ marginBottom: 12 }}>
+                  <label style={{ display: "block", fontSize: 12.5, color: "var(--soft)", marginBottom: 5 }}>GSTIN</label>
+                  <input value={sform.gstin} onChange={(e) => setSform({ ...sform, gstin: e.target.value })} placeholder="e.g. 24ABCDE1234F1Z5" style={inp} />
+                </div>
               </div>
               <div style={{ marginBottom: 12 }}>
-                <label style={{ display: "block", fontSize: 12.5, color: "var(--soft)", marginBottom: 5 }}>GSTIN</label>
-                <input value={sform.gstin} onChange={(e) => setSform({ ...sform, gstin: e.target.value })} placeholder="e.g. 24ABCDE1234F1Z5" style={inp} />
+                <label style={{ display: "block", fontSize: 12.5, color: "var(--soft)", marginBottom: 5 }}>Business name (on invoice)</label>
+                <input value={sform.biz_name} onChange={(e) => setSform({ ...sform, biz_name: e.target.value })} placeholder="QR Studio" style={inp} />
               </div>
+              <div style={{ marginBottom: 12 }}>
+                <label style={{ display: "block", fontSize: 12.5, color: "var(--soft)", marginBottom: 5 }}>Business address</label>
+                <input value={sform.biz_address} onChange={(e) => setSform({ ...sform, biz_address: e.target.value })} placeholder="Street, City, State, PIN" style={inp} />
+              </div>
+              <div style={{ marginBottom: 16 }}>
+                <label style={{ display: "block", fontSize: 12.5, color: "var(--soft)", marginBottom: 5 }}>HSN / SAC code</label>
+                <input value={sform.hsn} onChange={(e) => setSform({ ...sform, hsn: e.target.value })} placeholder="998314" style={inp} />
+              </div>
+              <button className="btn btn-primary" onClick={saveSettings} disabled={savingSet}>{savingSet ? "Saving…" : "Save settings"}</button>
             </div>
-            <div style={{ marginBottom: 12 }}>
-              <label style={{ display: "block", fontSize: 12.5, color: "var(--soft)", marginBottom: 5 }}>Business name (on invoice)</label>
-              <input value={sform.biz_name} onChange={(e) => setSform({ ...sform, biz_name: e.target.value })} placeholder="QR Studio" style={inp} />
+
+            <div className="card">
+              <h3 style={{ fontSize: 16, marginBottom: 4 }}>Admin account</h3>
+              <p style={{ fontSize: 13, color: "var(--soft)", marginBottom: 16 }}>Your login credentials and recovery.</p>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                <div style={{ marginBottom: 12 }}>
+                  <label style={{ display: "block", fontSize: 12.5, color: "var(--soft)", marginBottom: 5 }}>Username / login email</label>
+                  <input value={me.email} readOnly style={{ ...inp, background: "var(--card2)", color: "var(--soft)" }} />
+                </div>
+                <div style={{ marginBottom: 12 }}>
+                  <label style={{ display: "block", fontSize: 12.5, color: "var(--soft)", marginBottom: 5 }}>Mobile number</label>
+                  <input value={aform.phone} onChange={(e) => setAform({ phone: e.target.value })} placeholder="10-digit mobile" style={inp} />
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                <button className="btn btn-ghost btn-sm" onClick={saveAdminPhone}>Save mobile</button>
+                <button className="btn btn-primary btn-sm" onClick={sendMyReset}>🔑 Change / reset password</button>
+              </div>
+              <p style={{ fontSize: 11.5, color: "var(--soft)", marginTop: 12 }}>Password changes go through a secure email link. To recover a forgotten password from the login screen, use “Forgot password?”.</p>
             </div>
-            <div style={{ marginBottom: 12 }}>
-              <label style={{ display: "block", fontSize: 12.5, color: "var(--soft)", marginBottom: 5 }}>Business address</label>
-              <input value={sform.biz_address} onChange={(e) => setSform({ ...sform, biz_address: e.target.value })} placeholder="Street, City, State, PIN" style={inp} />
-            </div>
-            <div style={{ marginBottom: 16 }}>
-              <label style={{ display: "block", fontSize: 12.5, color: "var(--soft)", marginBottom: 5 }}>HSN / SAC code</label>
-              <input value={sform.hsn} onChange={(e) => setSform({ ...sform, hsn: e.target.value })} placeholder="998314" style={inp} />
-            </div>
-            <button className="btn btn-primary" onClick={saveSettings} disabled={savingSet}>{savingSet ? "Saving…" : "Save settings"}</button>
           </div>
         )}
       </div>
+
+      {userView && <UserModal u={userView} codes={codes} orders={orders} txns={txns} gstOf={gstOf} itemLabel={itemLabel} onClose={() => setUserView(null)} />}
+      {codeView && <CodeModal c={codeView} email={emailById[codeView.user_id]} onClose={() => setCodeView(null)} />}
     </div>
   );
 }
 
 function K({ label, v }) {
   return <div className="card"><div style={{ fontSize: 13, color: "var(--soft)" }}>{label}</div><div style={{ fontFamily: "'Plus Jakarta Sans'", fontSize: 28, fontWeight: 800, marginTop: 8 }}>{v}</div></div>;
+}
+
+function Overlay({ children, onClose }) {
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(15,20,40,.45)", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 16px", zIndex: 50, overflowY: "auto" }}>
+      <div onClick={(e) => e.stopPropagation()} className="card" style={{ width: "100%", maxWidth: 620, margin: "auto" }}>{children}</div>
+    </div>
+  );
+}
+
+function Row({ k, v }) {
+  return <div style={{ display: "flex", justifyContent: "space-between", gap: 12, padding: "7px 0", borderBottom: "1px solid var(--line)", fontSize: 13.5 }}><span style={{ color: "var(--soft)" }}>{k}</span><span style={{ textAlign: "right", wordBreak: "break-word" }}>{v}</span></div>;
+}
+
+function UserModal({ u, codes, orders, txns, gstOf, itemLabel, onClose }) {
+  const uCodes = codes.filter((c) => c.user_id === u.id);
+  const uOrders = (orders || []).filter((o) => o.user_id === u.id);
+  const uPaid = uOrders.filter((o) => o.status === "paid");
+  const uTxns = txns.filter((t) => t.user_id === u.id);
+  const spent = uPaid.reduce((a, o) => a + (o.amount || 0), 0);
+  return (
+    <Overlay onClose={onClose}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
+        <div>
+          <h3 style={{ fontSize: 18 }}>{u.full_name || "User profile"}</h3>
+          <div style={{ color: "var(--soft)", fontSize: 13 }}>{u.email}</div>
+        </div>
+        <button className="btn btn-ghost btn-sm" onClick={onClose}>✕ Close</button>
+      </div>
+
+      <h4 style={{ fontSize: 13, textTransform: "uppercase", color: "var(--soft)", margin: "16px 0 4px" }}>Profile</h4>
+      <Row k="User ID" v={<span style={{ fontSize: 11 }}>{u.id}</span>} />
+      <Row k="Mobile" v={u.phone || "—"} />
+      <Row k="Role" v={u.role} />
+      <Row k="Status" v={u.status === "hold" ? "On hold" : "Active"} />
+      <Row k="Joined" v={new Date(u.created_at).toLocaleString()} />
+
+      <h4 style={{ fontSize: 13, textTransform: "uppercase", color: "var(--soft)", margin: "16px 0 4px" }}>Subscription</h4>
+      <Row k="Current plan" v={<span className={"pill " + u.plan}>{u.plan}</span>} />
+      <Row k="Credits remaining" v={u.credits} />
+      <Row k="QR codes created" v={uCodes.length} />
+
+      <h4 style={{ fontSize: 13, textTransform: "uppercase", color: "var(--soft)", margin: "16px 0 4px" }}>Account &amp; payments — ₹{spent.toLocaleString()} paid</h4>
+      {uOrders.length === 0 ? <p style={{ color: "var(--soft)", fontSize: 13 }}>No payment orders.</p> : (
+        <table><thead><tr><th>Date</th><th>Invoice</th><th>Item</th><th>Amount</th><th>Status</th></tr></thead>
+          <tbody>{uOrders.map((o) => (
+            <tr key={o.id}>
+              <td style={{ color: "var(--soft)", fontSize: 12 }}>{new Date(o.created_at).toLocaleDateString()}</td>
+              <td style={{ fontSize: 12 }}>{o.invoice_no || "—"}</td>
+              <td style={{ fontSize: 12.5 }}>{itemLabel(o)}</td>
+              <td>₹{o.amount}</td>
+              <td><span className={"pill " + (o.status === "paid" ? "pro" : o.status === "failed" ? "free" : "starter")}>{o.status}</span></td>
+            </tr>
+          ))}</tbody>
+        </table>
+      )}
+
+      {uCodes.length > 0 && (
+        <>
+          <h4 style={{ fontSize: 13, textTransform: "uppercase", color: "var(--soft)", margin: "16px 0 4px" }}>QR codes</h4>
+          <table><thead><tr><th>Name</th><th>Type</th><th>Scans</th><th>Status</th></tr></thead>
+            <tbody>{uCodes.map((c) => <tr key={c.id}><td>{c.name}</td><td>{c.type}</td><td>{c.scans}</td><td>{c.status === "hold" ? "On hold" : "Active"}</td></tr>)}</tbody>
+          </table>
+        </>
+      )}
+    </Overlay>
+  );
+}
+
+function CodeModal({ c, email, onClose }) {
+  const redirect = c.slug ? `${SITE_URL}/r/${c.slug}` : "";
+  return (
+    <Overlay onClose={onClose}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
+        <div>
+          <h3 style={{ fontSize: 18 }}>{c.name}</h3>
+          <div style={{ color: "var(--soft)", fontSize: 13 }}>{c.type} · {c.dynamic ? "Dynamic" : "Static"}</div>
+        </div>
+        <button className="btn btn-ghost btn-sm" onClick={onClose}>✕ Close</button>
+      </div>
+      <div style={{ marginTop: 12 }}>
+        <Row k="Owner" v={email || "—"} />
+        <Row k="Status" v={c.status === "hold" ? "On hold" : "Active"} />
+        <Row k="Scans" v={c.scans} />
+        <Row k="Target / content" v={<span style={{ wordBreak: "break-all" }}>{c.content}</span>} />
+        {c.dynamic && redirect && <Row k="Short link" v={<a href={redirect} target="_blank" rel="noreferrer" style={{ color: "var(--brand)", wordBreak: "break-all" }}>{redirect}</a>} />}
+        <Row k="Created" v={new Date(c.created_at).toLocaleString()} />
+      </div>
+      {c.dynamic && redirect && (
+        <div style={{ marginTop: 16, textAlign: "center" }}>
+          <img alt="qr" style={{ width: 160, height: 160 }} src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(redirect)}`} />
+          <div style={{ fontSize: 11.5, color: "var(--soft)", marginTop: 6 }}>Live preview of the QR target</div>
+        </div>
+      )}
+    </Overlay>
+  );
 }

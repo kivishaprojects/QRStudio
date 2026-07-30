@@ -67,6 +67,19 @@ export default function Dashboard() {
 
   if (loading) return <div style={{ padding: 60, textAlign: "center", color: "var(--soft)" }}>Loading your dashboard…</div>;
 
+  if (profile?.status === "hold") {
+    return (
+      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+        <div className="card" style={{ maxWidth: 440, textAlign: "center" }}>
+          <div style={{ fontSize: 40, marginBottom: 8 }}>⏸️</div>
+          <h2 style={{ fontSize: 20 }}>Your account is on hold</h2>
+          <p style={{ color: "var(--soft)", fontSize: 14, margin: "10px 0 18px" }}>Access to your dashboard has been temporarily paused by an administrator. Please contact support if you believe this is a mistake.</p>
+          <button className="btn btn-ghost" style={{ width: "100%", justifyContent: "center" }} onClick={signOut}>Sign out</button>
+        </div>
+      </div>
+    );
+  }
+
   const planName = plans.find((p) => p.id === profile?.plan)?.name || "Free";
   const totalScans = codes.reduce((a, c) => a + (c.scans || 0), 0);
 
@@ -536,6 +549,7 @@ function Billing({ supabase, profile, plans, txns, orders, settings, onChange, f
     const BIZ = s.biz_name || "QR Studio";
     const ADDR = s.biz_address || "";
     const GSTIN = s.gstin ? "GSTIN: " + s.gstin : "GSTIN: __________ (set in Admin → Settings)";
+    const LOGO = s.logo_url ? '<img src="' + s.logo_url + '" alt="logo" style="max-height:56px;max-width:180px;margin-bottom:8px"/><br/>' : "";
     w.document.write(
       '<html><head><title>Invoice ' + (o.invoice_no || o.id) + '</title><style>' +
       'body{font-family:Arial,sans-serif;color:#1b2138;max-width:720px;margin:auto;padding:32px}' +
@@ -547,7 +561,7 @@ function Billing({ supabase, profile, plans, txns, orders, settings, onChange, f
       '.summary div{display:flex;justify-content:space-between;padding:5px 0}.summary .tot{border-top:2px solid #1b2138;margin-top:6px;padding-top:8px;font-size:17px;font-weight:800}' +
       '.tag{color:#5f6982;font-size:11px;margin-top:30px;line-height:1.6}' +
       '</style></head><body>' +
-      '<div class="head"><div><div class="brand">' + BIZ + '</div>' + (ADDR ? '<div class="muted">' + ADDR + '</div>' : '<div class="muted">Developed by Jupiter Technologies · Made in India</div>') + '<div class="muted">' + GSTIN + '</div></div>' +
+      '<div class="head"><div>' + LOGO + '<div class="brand">' + BIZ + '</div>' + (ADDR ? '<div class="muted">' + ADDR + '</div>' : '<div class="muted">Developed by Jupiter Technologies · Made in India</div>') + '<div class="muted">' + GSTIN + '</div></div>' +
       '<div style="text-align:right"><div style="font-size:18px;font-weight:700">TAX INVOICE</div><div class="muted">' + (o.invoice_no || o.id) + '</div><div class="muted">' + date + '</div></div></div>' +
       '<div style="margin-top:18px"><div class="muted">BILLED TO</div><div>' + (profile && profile.email ? profile.email : "Customer") + '</div></div>' +
       '<table><thead><tr><th>Description</th><th class="r">HSN/SAC</th><th class="r">Taxable value</th></tr></thead>' +

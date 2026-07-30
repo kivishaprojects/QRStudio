@@ -41,6 +41,17 @@ export async function GET(request, { params }) {
     if (data) content = data;
   } catch (_) {}
 
+  if (content === "::held::") {
+    const html = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>QR paused</title></head>
+      <body style="font-family:Arial,sans-serif;background:#f5f7fc;color:#1b2138;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;text-align:center">
+        <div style="max-width:360px;padding:24px">
+          <div style="font-size:40px">⏸️</div>
+          <h2 style="margin:10px 0 6px">This QR code is temporarily paused</h2>
+          <p style="color:#5f6982;font-size:14px">The owner has put this code on hold. Please check back later.</p>
+        </div></body></html>`;
+    return new NextResponse(html, { status: 403, headers: { "content-type": "text/html; charset=utf-8" } });
+  }
+
   if (/^https?:\/\//i.test(content)) return NextResponse.redirect(content);
   return new NextResponse(content, { headers: { "content-type": "text/plain; charset=utf-8" } });
 }
