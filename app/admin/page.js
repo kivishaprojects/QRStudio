@@ -243,7 +243,10 @@ export default function Admin() {
   return (
     <div style={{ display: "grid", gridTemplateColumns: "230px 1fr", minHeight: "100vh" }}>
       <aside style={{ background: "var(--bg2)", borderRight: "1px solid var(--line)", padding: "20px 15px", position: "sticky", top: 0, height: "100vh" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, fontWeight: 800, fontSize: 17, padding: "6px 8px 18px" }}><span className="logo">▦</span> Admin</div>
+        <div style={{ padding: "6px 8px 16px" }}>
+          <img src="/logo.png" alt="India QR Code" style={{ height: 32 }} />
+          <div style={{ fontSize: 12, color: "var(--soft)", fontWeight: 700, letterSpacing: ".12em", marginTop: 6 }}>ADMIN PANEL</div>
+        </div>
         {[["overview", "▨ Overview"], ["users", "👥 Users"], ["revenue", "₹ Revenue"], ["bills", "🧾 Bills Generated"], ["codes", "▤ QR Codes"], ["coupons", "🎟 Coupons"], ["support", "🛟 Support"], ["audit", "📜 Audit Log"], ["backup", "💾 Backup"], ["settings", "⚙ Settings"]].map(([id, l]) => {
           const openCount = id === "support" ? (data.tickets || []).filter((t) => t.status === "open" || t.status === "in_progress").length : 0;
           return (

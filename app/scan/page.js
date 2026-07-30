@@ -49,8 +49,8 @@ export default function Scan() {
   return (
     <main style={wrap}>
       <div className="card" style={{ width: "100%", maxWidth: 420, textAlign: "center" }}>
-        <Link href="/" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 9, fontWeight: 800, fontSize: 18, marginBottom: 14, color: "var(--txt)" }}>
-          <span className="logo">▦</span> India QRCode
+        <Link href="/" style={{ display: "block", marginBottom: 14 }}>
+          <img src="/logo.png" alt="India QR Code" style={{ height: 40 }} />
         </Link>
         <h2 style={{ fontSize: 20, marginBottom: 6 }}>Scan a QR code</h2>
         <p style={{ color: "var(--soft)", fontSize: 13.5, marginBottom: 16 }}>Point your camera at any QR code.</p>

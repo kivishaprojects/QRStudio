@@ -6,8 +6,8 @@ export default function manifest() {
     start_url: "/dashboard",
     scope: "/",
     display: "standalone",
-    background_color: "#f5f7fc",
-    theme_color: "#5566f2",
+    background_color: "#f6f8fc",
+    theme_color: "#152a63",
     orientation: "portrait",
     icons: [
       { src: "/icons/icon-192.png", sizes: "192x192", type: "image/png", purpose: "any" },

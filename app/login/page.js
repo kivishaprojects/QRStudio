@@ -71,8 +71,8 @@ function LoginInner() {
   return (
     <main style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
       <div className="card" style={{ width: "100%", maxWidth: 400 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 11, fontWeight: 800, fontSize: 19, marginBottom: 6 }}>
-          <span className="logo">▦</span> India QRCode
+        <div style={{ marginBottom: 10 }}>
+          <img src="/logo.png" alt="India QR Code" style={{ height: 44 }} />
         </div>
         <h2 style={{ fontSize: 22, margin: "12px 0 4px" }}>{mode === "signup" ? "Create your account" : "Welcome back"}</h2>
         <p style={{ color: "var(--soft)", fontSize: 13.5, marginBottom: 20 }}>

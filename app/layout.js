@@ -25,7 +25,7 @@ export const metadata = {
   icons: { icon: "/icons/icon-192.png", apple: "/apple-icon.png" },
 };
 
-export const viewport = { themeColor: "#5566f2", width: "device-width", initialScale: 1 };
+export const viewport = { themeColor: "#152a63", width: "device-width", initialScale: 1 };
 
 const JSONLD = {
   "@context": "https://schema.org",
@@ -50,6 +50,7 @@ export default function RootLayout({ children }) {
         />
       </head>
       <body>
+        <div className="tricolor" />
         <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(JSONLD) }} />
         {children}
         <PWARegister />

@@ -30,20 +30,19 @@ function page(bodyInner) {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>India QRCode</title>
 <style>
-:root{--brand:#5566f2;--accent:#0ea371;--txt:#1b2138;--soft:#5f6982;--line:#e2e7f1}
-*{box-sizing:border-box}body{font-family:Arial,Helvetica,sans-serif;background:#f5f7fc;color:var(--txt);margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:22px}
-.card{background:#fff;border:1px solid var(--line);border-radius:18px;max-width:400px;width:100%;padding:26px;box-shadow:0 10px 40px rgba(20,25,60,.08)}
-.brand{display:flex;align-items:center;gap:9px;font-weight:800;font-size:17px;margin-bottom:18px}
-.logo{width:30px;height:30px;border-radius:8px;background:linear-gradient(135deg,var(--brand),#7c3aed);color:#fff;display:flex;align-items:center;justify-content:center;font-size:16px}
+:root{--brand:#152a63;--brand2:#25409a;--accent:#2ea24d;--saffron:#f47a1f;--txt:#16224c;--soft:#5b6685;--line:#e2e8f3}
+*{box-sizing:border-box}body{font-family:Arial,Helvetica,sans-serif;background:#f6f8fc;color:var(--txt);margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:22px}
+.tri{position:fixed;top:0;left:0;right:0;height:4px;background:linear-gradient(90deg,var(--saffron) 0 33.3%,#fff 33.3% 66.6%,var(--accent) 66.6% 100%)}
+.card{background:#fff;border:1px solid var(--line);border-radius:18px;max-width:400px;width:100%;padding:26px;box-shadow:0 14px 44px rgba(21,42,99,.12)}
+.brand{margin-bottom:18px}.brand img{height:32px}
 h1{font-size:20px;margin:0 0 4px}.sub{color:var(--soft);font-size:13.5px;margin:0 0 18px}
 .row{display:flex;justify-content:space-between;gap:10px;padding:10px 0;border-bottom:1px solid var(--line);font-size:14px}
 .row .k{color:var(--soft)}.row .v{font-weight:600;text-align:right;word-break:break-word}
-.btn{display:block;text-align:center;text-decoration:none;background:linear-gradient(135deg,var(--brand),#7c3aed);color:#fff;font-weight:700;padding:13px;border-radius:11px;margin-top:16px;font-size:15px;border:none;width:100%;cursor:pointer}
-.btn.alt{background:#fff;color:var(--brand);border:1px solid var(--brand)}
+.btn{display:block;text-align:center;text-decoration:none;background:linear-gradient(135deg,#f79024,var(--saffron));color:#fff;font-weight:700;padding:13px;border-radius:11px;margin-top:16px;font-size:15px;border:none;width:100%;cursor:pointer}
 .txt{white-space:pre-wrap;line-height:1.6;font-size:15px}
 .foot{color:var(--soft);font-size:11.5px;text-align:center;margin-top:20px}
-</style></head><body><div class="card">
-<div class="brand"><span class="logo">▦</span> India QRCode</div>
+</style></head><body><div class="tri"></div><div class="card">
+<div class="brand"><img src="https://www.indiaqrcode.com/logo.png" alt="India QR Code"/></div>
 ${bodyInner}
 <div class="foot">Powered by India QRCode · indiaqrcode.com</div>
 </div></body></html>`;

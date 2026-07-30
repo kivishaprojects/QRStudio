@@ -22,9 +22,7 @@ export default function LegalLayout({ title, updated, children }) {
     <main>
       <header style={{ position: "sticky", top: 0, zIndex: 50, background: "rgba(255,255,255,.82)", backdropFilter: "blur(12px)", borderBottom: "1px solid var(--line)" }}>
         <div className="container" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", height: 70 }}>
-          <Link href="/" style={{ display: "flex", alignItems: "center", gap: 11, fontWeight: 800, fontSize: 19, color: "var(--txt)" }}>
-            <span className="logo">▦</span> {BIZ.brand}
-          </Link>
+          <Link href="/"><img src="/logo.png" alt="India QR Code" style={{ height: 42 }} /></Link>
           <div style={{ display: "flex", gap: 12 }}>
             <Link className="btn btn-ghost" href="/login">Log in</Link>
             <Link className="btn btn-primary" href="/login?mode=signup">Start free →</Link>
