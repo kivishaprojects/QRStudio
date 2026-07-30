@@ -172,6 +172,46 @@ export default function Admin() {
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
     const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "gst-report.csv"; a.click();
   }
+  // Generate & print a single bill / tax invoice (same layout as the customer copy).
+  function downloadBill(o) {
+    const w = window.open("", "_blank"); if (!w) return;
+    const s = data.settings || {};
+    const b = gstOf(o.amount); const half = +(b.gst / 2).toFixed(2);
+    const item = itemLabel(o);
+    const date = new Date(o.paid_at || o.created_at).toLocaleString();
+    const HSN = s.hsn || "998314";
+    const BIZ = s.biz_name || "QR Studio";
+    const ADDR = s.biz_address || "";
+    const GSTIN = s.gstin ? "GSTIN: " + s.gstin : "GSTIN: __________";
+    const LOGO = s.logo_url ? '<img src="' + s.logo_url + '" alt="logo" style="max-height:56px;max-width:180px;margin-bottom:8px"/><br/>' : "";
+    const party = nameById[o.user_id] || emailById[o.user_id] || "Customer";
+    w.document.write(
+      '<html><head><title>Invoice ' + (o.invoice_no || o.id) + '</title><style>' +
+      'body{font-family:Arial,sans-serif;color:#1b2138;max-width:720px;margin:auto;padding:32px}' +
+      '.head{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #5566f2;padding-bottom:14px}' +
+      '.brand{font-size:22px;font-weight:800}.muted{color:#5f6982;font-size:12px}' +
+      'table{width:100%;border-collapse:collapse;margin-top:22px;font-size:13px}' +
+      'th,td{border-bottom:1px solid #e2e7f1;padding:8px}th{color:#5f6982;font-size:11px;text-transform:uppercase;text-align:left}' +
+      'td.r,th.r{text-align:right}.summary{width:280px;margin-left:auto;margin-top:14px;font-size:13px}' +
+      '.summary div{display:flex;justify-content:space-between;padding:5px 0}.summary .tot{border-top:2px solid #1b2138;margin-top:6px;padding-top:8px;font-size:17px;font-weight:800}' +
+      '.tag{color:#5f6982;font-size:11px;margin-top:30px;line-height:1.6}' +
+      '</style></head><body>' +
+      '<div class="head"><div>' + LOGO + '<div class="brand">' + BIZ + '</div>' + (ADDR ? '<div class="muted">' + ADDR + '</div>' : '<div class="muted">Developed by Jupiter Technologies · Made in India</div>') + '<div class="muted">' + GSTIN + '</div></div>' +
+      '<div style="text-align:right"><div style="font-size:18px;font-weight:700">TAX INVOICE</div><div class="muted">' + (o.invoice_no || o.id) + '</div><div class="muted">' + date + '</div></div></div>' +
+      '<div style="margin-top:18px"><div class="muted">BILLED TO</div><div>' + party + '</div></div>' +
+      '<table><thead><tr><th>Description</th><th class="r">HSN/SAC</th><th class="r">Taxable value</th></tr></thead>' +
+      '<tbody><tr><td>' + item + '</td><td class="r">' + HSN + '</td><td class="r">₹' + b.taxable.toLocaleString() + '</td></tr></tbody></table>' +
+      '<div class="summary">' +
+      '<div><span>Taxable value</span><span>₹' + b.taxable.toLocaleString() + '</span></div>' +
+      '<div><span>CGST @ ' + (RATE / 2) + '%</span><span>₹' + half.toLocaleString() + '</span></div>' +
+      '<div><span>SGST @ ' + (RATE / 2) + '%</span><span>₹' + half.toLocaleString() + '</span></div>' +
+      '<div class="tot"><span>Total (incl. GST)</span><span>₹' + b.gross.toLocaleString() + '</span></div>' +
+      '</div>' +
+      '<div class="tag">Order ID: ' + o.id + ' · Payment mode: ' + (o.payment_mode || "Online (Cashfree)") + ' · Status: Received.<br/>Prices are inclusive of GST @ ' + RATE + '%. This is a system-generated invoice.</div>' +
+      '<scr' + 'ipt>window.onload=function(){window.print()}</scr' + 'ipt></body></html>'
+    );
+    w.document.close();
+  }
   const inp = { width: "100%", background: "#ffffff", border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px", color: "var(--txt)", fontFamily: "inherit", fontSize: 14 };
   // Plan distribution now includes Free-plan (free login) users.
   const dist = ["free", "starter", "growth", "pro"].map((id) => ({ id, n: users.filter((u) => u.plan === id).length }));
@@ -307,7 +347,7 @@ export default function Admin() {
               </div>
               {paidOrders.length === 0 ? <p style={{ color: "var(--soft)" }}>No bills generated yet. Bills appear here once a payment is received.</p> : (
                 <div style={{ overflowX: "auto" }}>
-                  <table><thead><tr><th>Date</th><th>Invoice No</th><th>Party name</th><th>Item</th><th>Amount</th><th>Tax (GST)</th><th>Payment mode</th><th>Total</th><th>Received</th></tr></thead>
+                  <table><thead><tr><th>Date</th><th>Invoice No</th><th>Party name</th><th>Item</th><th>Amount</th><th>Tax (GST)</th><th>Payment mode</th><th>Total</th><th>Received</th><th>Bill</th></tr></thead>
                     <tbody>{paidOrders.map((o) => {
                       const b = gstOf(o.amount);
                       return (
@@ -321,6 +361,7 @@ export default function Admin() {
                           <td>{o.payment_mode || "Online (Cashfree)"}</td>
                           <td><b>₹{b.gross.toLocaleString()}</b></td>
                           <td><span className="pill pro">✓ Received</span></td>
+                          <td><button className="btn btn-ghost btn-sm" title="Download / print bill" onClick={() => downloadBill(o)}>🧾 Download</button></td>
                         </tr>
                       );
                     })}</tbody>
