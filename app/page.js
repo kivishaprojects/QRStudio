@@ -18,7 +18,7 @@ const PLANS = [
 export default function Home() {
   return (
     <main>
-      <header style={{ position: "sticky", top: 0, zIndex: 50, background: "rgba(13,15,36,.85)", backdropFilter: "blur(12px)", borderBottom: "1px solid var(--line)" }}>
+      <header style={{ position: "sticky", top: 0, zIndex: 50, background: "rgba(255,255,255,.82)", backdropFilter: "blur(12px)", borderBottom: "1px solid var(--line)" }}>
         <div className="container" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", height: 70 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 11, fontWeight: 800, fontSize: 19 }}>
             <span className="logo">▦</span> QR Studio

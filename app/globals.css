@@ -1,6 +1,6 @@
 :root{
-  --bg:#0d0f24;--bg2:#12142e;--card:#181b3a;--card2:#20244d;--line:#2b3068;
-  --txt:#eef1ff;--soft:#9aa3d4;--brand:#6c8cff;--brand2:#7c5cff;--accent:#22d3a6;--gold:#f5c451;--danger:#ff6b8b;
+  --bg:#f5f7fc;--bg2:#eef1f8;--card:#ffffff;--card2:#f2f4fb;--line:#e2e7f1;
+  --txt:#1b2138;--soft:#5f6982;--brand:#5566f2;--brand2:#7c5cff;--accent:#0ea371;--gold:#b7791f;--danger:#e5484d;
 }
 *{margin:0;padding:0;box-sizing:border-box;}
 html{scroll-behavior:smooth;}
@@ -18,7 +18,7 @@ h1,h2,h3,h4{font-family:'Plus Jakarta Sans','Inter',sans-serif;}
 .card{background:linear-gradient(180deg,var(--card),var(--bg2));border:1px solid var(--line);border-radius:16px;padding:22px;}
 .field{margin-bottom:13px;}
 .field label{display:block;font-size:12.5px;color:var(--soft);margin-bottom:6px;font-weight:500;}
-.field input,.field textarea,.field select{width:100%;background:#12173a;border:1px solid var(--line);border-radius:10px;padding:11px 13px;color:var(--txt);font-size:14px;font-family:inherit;}
+.field input,.field textarea,.field select{width:100%;background:#ffffff;border:1px solid var(--line);border-radius:10px;padding:11px 13px;color:var(--txt);font-size:14px;font-family:inherit;}
 .field input:focus,.field textarea:focus,.field select:focus{outline:none;border-color:var(--brand);}
 .field textarea{min-height:80px;resize:vertical;}
 .logo{width:36px;height:36px;border-radius:10px;background:linear-gradient(135deg,var(--brand),var(--brand2));display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;}

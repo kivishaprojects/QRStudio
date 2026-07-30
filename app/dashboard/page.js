@@ -66,7 +66,7 @@ export default function Dashboard() {
       </aside>
 
       <div>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 28px", borderBottom: "1px solid var(--line)", position: "sticky", top: 0, background: "rgba(13,15,36,.9)", backdropFilter: "blur(12px)", zIndex: 10 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 28px", borderBottom: "1px solid var(--line)", position: "sticky", top: 0, background: "rgba(255,255,255,.82)", backdropFilter: "blur(12px)", zIndex: 10 }}>
           <h2 style={{ fontSize: 20, textTransform: "capitalize" }}>{tab}</h2>
           <div style={{ display: "flex", gap: 14, alignItems: "center" }}>
             <span className="pill active">🎟 {profile?.credits ?? 0} credits</span>
@@ -278,7 +278,7 @@ function Billing({ supabase, profile, plans, txns, onChange, flash }) {
         <h3 style={{ fontSize: 16, marginBottom: 8 }}>Buy addon credits</h3>
         <p style={{ color: "var(--soft)", fontSize: 13.5, marginBottom: 12 }}>Your addon rate: <b style={{ color: "var(--txt)" }}>₹{rate}</b> per credit (based on your plan).</p>
         <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-          <input type="number" min={1} value={qty} onChange={(e) => setQty(e.target.value)} style={{ width: 90, background: "#12173a", border: "1px solid var(--line)", borderRadius: 10, padding: 10, color: "var(--txt)" }} />
+          <input type="number" min={1} value={qty} onChange={(e) => setQty(e.target.value)} style={{ width: 90, background: "#ffffff", border: "1px solid var(--line)", borderRadius: 10, padding: 10, color: "var(--txt)" }} />
           <span style={{ color: "var(--soft)", fontSize: 14 }}>× ₹{rate} = <b style={{ color: "var(--gold)" }}>₹{(rate * qty).toLocaleString()}</b></span>
           <button className="btn btn-primary btn-sm" onClick={buyAddons} disabled={busy}>Buy credits</button>
         </div>
