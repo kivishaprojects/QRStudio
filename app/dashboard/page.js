@@ -90,7 +90,7 @@ export default function Dashboard() {
         <div style={{ display: "flex", alignItems: "center", gap: 10, fontWeight: 800, fontSize: 18, padding: "6px 8px 18px" }}>
           <span className="logo">▦</span> QR Studio
         </div>
-        {[["overview", "▨ Dashboard"], ["create", "＋ Create QR"], ["codes", "▤ My QR Codes"], ["billing", "💳 Billing & Plan"], ["analytics", "📈 Analytics"]].map(([id, label]) => (
+        {[["overview", "▨ Dashboard"], ["create", "＋ Create QR"], ["codes", "▤ My QR Codes"], ["billing", "💳 Billing & Plan"], ["analytics", "📈 Analytics"], ["account", "👤 My Account"]].map(([id, label]) => (
           <div key={id} onClick={() => setTab(id)} style={navStyle(tab === id)}>{label}</div>
         ))}
         {profile?.role === "admin" && <Link href="/admin" style={{ ...navStyle(false), color: "var(--gold)" }}>🛡 Admin Panel</Link>}
@@ -117,6 +117,7 @@ export default function Dashboard() {
           {tab === "codes" && <Codes codes={codes} setTab={setTab} supabase={supabase} onChange={load} flash={flash} onViewAnalytics={(id) => { setAnalyticsCode(id); setTab("analytics"); }} />}
           {tab === "billing" && <Billing supabase={supabase} profile={profile} plans={plans} txns={txns} orders={orders} settings={settings} onChange={load} flash={flash} />}
           {tab === "analytics" && <Analytics codes={codes} scans={scans} totalScans={totalScans} initialCode={analyticsCode} />}
+          {tab === "account" && <Account supabase={supabase} profile={profile} plans={plans} orders={orders} settings={settings} onChange={load} flash={flash} />}
         </div>
       </div>
       <div className={"toast" + (toast ? " show" : "")}>{toast}</div>
@@ -126,6 +127,182 @@ export default function Dashboard() {
 
 function navStyle(active) {
   return { display: "flex", alignItems: "center", gap: 10, padding: "11px 13px", borderRadius: 11, marginBottom: 3, fontSize: 14.5, fontWeight: 500, cursor: "pointer", color: active ? "#fff" : "var(--soft)", background: active ? "linear-gradient(135deg,var(--brand),var(--brand2))" : "transparent" };
+}
+
+// Shared tax-invoice renderer (opens a print window). Used by Billing & My Account.
+function openInvoice(o, settings, profile) {
+  const w = window.open("", "_blank"); if (!w) return;
+  const item = o.kind === "plan" ? (o.plan || "Plan") + " package" : (o.qty || "") + " addon credits";
+  const date = new Date(o.paid_at || o.created_at).toLocaleString();
+  const s = settings || {};
+  const RATE = Number(s.gst_rate != null ? s.gst_rate : 18);
+  const b = taxBreakup(o.amount, RATE, o.tax_type);
+  const taxable = b.taxable, gross = b.gross;
+  const HSN = s.hsn || "998314";
+  const BIZ = s.biz_name || "QR Studio";
+  const ADDR = s.biz_address || "";
+  const GSTIN = s.gstin ? "GSTIN: " + s.gstin : "GSTIN: __________ (set in Admin → Settings)";
+  const LOGO = s.logo_url ? '<img src="' + s.logo_url + '" alt="logo" style="max-height:56px;max-width:180px;margin-bottom:8px"/><br/>' : "";
+  const taxRows = b.igst
+    ? '<div><span>IGST @ ' + RATE + '%</span><span>₹' + b.igstAmt.toLocaleString() + '</span></div>'
+    : '<div><span>CGST @ ' + (RATE / 2) + '%</span><span>₹' + b.cgst.toLocaleString() + '</span></div>' +
+      '<div><span>SGST @ ' + (RATE / 2) + '%</span><span>₹' + b.sgst.toLocaleString() + '</span></div>';
+  const billedTo = (o.buyer_name ? '<b>' + o.buyer_name + '</b><br/>' : '') + (profile && profile.email ? profile.email : "Customer") +
+    (o.buyer_gstin ? '<div class="muted">GSTIN: ' + o.buyer_gstin + '</div>' : '') +
+    (o.buyer_city || o.buyer_state ? '<div class="muted">' + [o.buyer_city, o.buyer_state, o.buyer_pincode].filter(Boolean).join(", ") + '</div>' : '') +
+    (o.buyer_state ? '<div class="muted">Place of supply: ' + o.buyer_state + '</div>' : '');
+  w.document.write(
+    '<html><head><title>Invoice ' + (o.invoice_no || o.id) + '</title><style>' +
+    'body{font-family:Arial,sans-serif;color:#1b2138;max-width:720px;margin:auto;padding:32px}' +
+    '.head{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #5566f2;padding-bottom:14px}' +
+    '.brand{font-size:22px;font-weight:800}.muted{color:#5f6982;font-size:12px}' +
+    'table{width:100%;border-collapse:collapse;margin-top:22px;font-size:13px}' +
+    'th,td{border-bottom:1px solid #e2e7f1;padding:8px}th{color:#5f6982;font-size:11px;text-transform:uppercase;text-align:left}' +
+    'td.r,th.r{text-align:right}.summary{width:280px;margin-left:auto;margin-top:14px;font-size:13px}' +
+    '.summary div{display:flex;justify-content:space-between;padding:5px 0}.summary .tot{border-top:2px solid #1b2138;margin-top:6px;padding-top:8px;font-size:17px;font-weight:800}' +
+    '.tag{color:#5f6982;font-size:11px;margin-top:30px;line-height:1.6}' +
+    '</style></head><body>' +
+    '<div class="head"><div>' + LOGO + '<div class="brand">' + BIZ + '</div>' + (ADDR ? '<div class="muted">' + ADDR + '</div>' : '<div class="muted">Developed by Jupiter Technologies · Made in India</div>') + '<div class="muted">' + GSTIN + '</div></div>' +
+    '<div style="text-align:right"><div style="font-size:18px;font-weight:700">TAX INVOICE</div><div class="muted">' + (o.invoice_no || o.id) + '</div><div class="muted">' + date + '</div></div></div>' +
+    '<div style="margin-top:18px"><div class="muted">BILLED TO</div><div>' + billedTo + '</div></div>' +
+    '<table><thead><tr><th>Description</th><th class="r">HSN/SAC</th><th class="r">Taxable value</th></tr></thead>' +
+    '<tbody><tr><td>' + item + '</td><td class="r">' + HSN + '</td><td class="r">₹' + taxable.toLocaleString() + '</td></tr></tbody></table>' +
+    '<div class="summary">' +
+    '<div><span>Taxable value</span><span>₹' + taxable.toLocaleString() + '</span></div>' +
+    taxRows +
+    '<div class="tot"><span>Total (incl. GST)</span><span>₹' + gross.toLocaleString() + '</span></div>' +
+    '</div>' +
+    '<div class="tag">Order ID: ' + o.id + ' · Paid via Cashfree.<br/>Prices are inclusive of GST @ ' + RATE + '%. This is a system-generated invoice.</div>' +
+    '<scr' + 'ipt>window.onload=function(){window.print()}</scr' + 'ipt></body></html>'
+  );
+  w.document.close();
+}
+
+function Account({ supabase, profile, plans, orders, settings, onChange, flash }) {
+  const [f, setF] = useState({
+    full_name: "", phone: "", billing_name: "", gstin: "", address: "", city: "", state: "", pincode: "",
+  });
+  const [saving, setSaving] = useState(false);
+  const [pw, setPw] = useState(""); const [pw2, setPw2] = useState(""); const [pwBusy, setPwBusy] = useState(false);
+  useEffect(() => {
+    if (!profile) return;
+    setF({
+      full_name: profile.full_name || "", phone: profile.phone || "", billing_name: profile.billing_name || "",
+      gstin: profile.billing_gstin || "", address: profile.billing_address || "", city: profile.billing_city || "",
+      state: profile.billing_state || "", pincode: profile.billing_pincode || "",
+    });
+  }, [profile]);
+
+  const plan = plans.find((p) => p.id === profile?.plan);
+  const paidBills = (orders || []).filter((o) => o.status === "paid");
+
+  async function save() {
+    if (f.gstin && !isValidGstin(f.gstin)) { flash("Enter a valid 15-character GSTIN (or leave it blank)"); return; }
+    if (f.pincode && !isValidPincode(f.pincode)) { flash("Enter a valid 6-digit pincode"); return; }
+    setSaving(true);
+    const state = f.gstin && isValidGstin(f.gstin) ? stateFromGstin(f.gstin) : f.state;
+    const { error } = await supabase.rpc("qr_save_profile", {
+      p_full_name: f.full_name || null, p_phone: f.phone || null, p_billing_name: f.billing_name || null,
+      p_gstin: f.gstin || null, p_address: f.address || null, p_city: f.city || null,
+      p_state: state || null, p_pincode: f.pincode || null,
+    });
+    setSaving(false);
+    if (error) flash("Error: " + error.message);
+    else { flash("✅ Profile saved"); onChange(); }
+  }
+  async function changePassword() {
+    if (pw.length < 6) { flash("Password must be at least 6 characters"); return; }
+    if (pw !== pw2) { flash("Passwords do not match"); return; }
+    setPwBusy(true);
+    const { error } = await supabase.auth.updateUser({ password: pw });
+    setPwBusy(false);
+    if (error) flash("Error: " + error.message);
+    else { setPw(""); setPw2(""); flash("✅ Password updated"); }
+  }
+  async function emailReset() {
+    if (!profile?.email) return;
+    const { error } = await supabase.auth.resetPasswordForEmail(profile.email, { redirectTo: `${window.location.origin}/auth/callback?next=/auth/reset` });
+    if (error) flash("Error: " + error.message); else flash("✅ Reset link sent to " + profile.email);
+  }
+
+  const gstState = f.gstin && isValidGstin(f.gstin) ? stateFromGstin(f.gstin) : "";
+  const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+
+  return (
+    <div style={{ display: "grid", gap: 18, maxWidth: 760 }}>
+      <div className="card">
+        <h3 style={{ fontSize: 17, marginBottom: 4 }}>My subscription</h3>
+        <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 12, marginTop: 10 }}>
+          <div><div style={{ fontSize: 12.5, color: "var(--soft)" }}>Current plan</div><div style={{ fontFamily: "'Plus Jakarta Sans'", fontSize: 22, fontWeight: 800 }}>{plan?.name || "Free"}</div></div>
+          <div><div style={{ fontSize: 12.5, color: "var(--soft)" }}>Credits remaining</div><div style={{ fontFamily: "'Plus Jakarta Sans'", fontSize: 22, fontWeight: 800, color: "var(--gold)" }}>{profile?.credits ?? 0}</div></div>
+          <div><div style={{ fontSize: 12.5, color: "var(--soft)" }}>Addon rate</div><div style={{ fontFamily: "'Plus Jakarta Sans'", fontSize: 22, fontWeight: 800 }}>₹{plan?.addon_rate ?? 100}<span style={{ fontSize: 12, color: "var(--soft)", fontWeight: 500 }}>/QR/yr</span></div></div>
+        </div>
+      </div>
+
+      <div className="card">
+        <h3 style={{ fontSize: 17, marginBottom: 4 }}>Profile &amp; billing details</h3>
+        <p style={{ fontSize: 13, color: "var(--soft)", marginBottom: 16 }}>Saved here and pre-filled at checkout so your invoices carry the right GST details.</p>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <Field label="Full name"><input value={f.full_name} onChange={set("full_name")} placeholder="Vishal H Raval" /></Field>
+          <Field label="Mobile number"><input value={f.phone} onChange={set("phone")} placeholder="10-digit mobile" inputMode="numeric" maxLength={10} /></Field>
+        </div>
+        <Field label="Billing / business name"><input value={f.billing_name} onChange={set("billing_name")} placeholder="Company or individual name on the invoice" /></Field>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <Field label="GSTIN (optional)">
+            <input value={f.gstin} onChange={(e) => setF({ ...f, gstin: e.target.value.toUpperCase() })} placeholder="24ABCDE1234F1Z5" maxLength={15} style={{ textTransform: "uppercase" }} />
+            {f.gstin && !isValidGstin(f.gstin) && <div style={{ fontSize: 11.5, color: "#c0392b", marginTop: 4 }}>Not a valid GSTIN.</div>}
+            {gstState && <div style={{ fontSize: 11.5, color: "var(--accent)", marginTop: 4 }}>State: <b>{gstState}</b></div>}
+          </Field>
+          <Field label="Pincode"><input value={f.pincode} onChange={(e) => setF({ ...f, pincode: e.target.value.replace(/[^0-9]/g, "") })} placeholder="380001" inputMode="numeric" maxLength={6} /></Field>
+        </div>
+        <Field label="Billing address"><input value={f.address} onChange={set("address")} placeholder="Street, area" /></Field>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <Field label="City"><input value={f.city} onChange={set("city")} placeholder="Ahmedabad" /></Field>
+          <Field label="State"><input value={gstState || f.state} onChange={set("state")} placeholder="Gujarat" readOnly={!!gstState} /></Field>
+        </div>
+        <button className="btn btn-primary" onClick={save} disabled={saving}>{saving ? "Saving…" : "Save profile"}</button>
+      </div>
+
+      <div className="card">
+        <h3 style={{ fontSize: 17, marginBottom: 4 }}>Password &amp; security</h3>
+        <p style={{ fontSize: 13, color: "var(--soft)", marginBottom: 14 }}>Signed in as <b style={{ color: "var(--txt)" }}>{profile?.email}</b></p>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <Field label="New password"><input type="password" value={pw} onChange={(e) => setPw(e.target.value)} placeholder="••••••••" minLength={6} /></Field>
+          <Field label="Confirm new password"><input type="password" value={pw2} onChange={(e) => setPw2(e.target.value)} placeholder="••••••••" minLength={6} /></Field>
+        </div>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          <button className="btn btn-primary btn-sm" onClick={changePassword} disabled={pwBusy}>{pwBusy ? "Updating…" : "Update password"}</button>
+          <button className="btn btn-ghost btn-sm" onClick={emailReset}>Email me a reset link instead</button>
+        </div>
+      </div>
+
+      <div className="card">
+        <h3 style={{ fontSize: 17, marginBottom: 12 }}>My bills</h3>
+        {paidBills.length === 0 ? <p style={{ color: "var(--soft)" }}>No bills yet. Your paid invoices will appear here.</p> : (
+          <table><thead><tr><th>Date</th><th>Invoice</th><th>Item</th><th>Amount</th><th></th></tr></thead>
+            <tbody>{paidBills.map((o) => (
+              <tr key={o.id}>
+                <td style={{ color: "var(--soft)" }}>{new Date(o.paid_at || o.created_at).toLocaleDateString()}</td>
+                <td style={{ fontSize: 12 }}>{o.invoice_no || "—"}</td>
+                <td>{o.kind === "plan" ? (o.plan || "Plan") + " package" : (o.qty || "") + " addon credits"}</td>
+                <td><b>₹{o.amount}</b></td>
+                <td><button className="btn btn-ghost btn-sm" onClick={() => openInvoice(o, settings, profile)}>🧾 Invoice</button></td>
+              </tr>
+            ))}</tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function Field({ label, children }) {
+  return (
+    <div className="field">
+      <label>{label}</label>
+      {children}
+    </div>
+  );
 }
 function StatCard({ label, value, sub }) {
   return (
@@ -477,6 +654,16 @@ function Billing({ supabase, profile, plans, txns, orders, settings, onChange, f
   const [gstFetching, setGstFetching] = useState(false);
   const rate = plans.find((p) => p.id === profile?.plan)?.addon_rate || 100;
   useEffect(() => { if (profile && profile.phone) setPhone(profile.phone); }, [profile]);
+  // Pre-fill the GST step from the customer's saved billing profile.
+  useEffect(() => {
+    if (!profile) return;
+    if (profile.billing_gstin) {
+      setGstOn("yes"); setGstin(profile.billing_gstin);
+      if (profile.billing_city) setGstCity(profile.billing_city);
+      if (profile.billing_pincode) setGstPin(profile.billing_pincode);
+      if (profile.billing_name) setGstLegal(profile.billing_name);
+    }
+  }, [profile]);
   const gstState = gstOn === "yes" && isValidGstin(gstin) ? stateFromGstin(gstin) : "";
   const sellerGstin = settings && settings.gstin;
   const gstReady = gstOn === "no" || (gstOn === "yes" && isValidGstin(gstin) && gstCity.trim() && isValidPincode(gstPin));
@@ -572,53 +759,7 @@ function Billing({ supabase, profile, plans, txns, orders, settings, onChange, f
     const label = (o.kind === "plan" ? (o.plan || "Plan") + " package" : (o.qty || "") + " addon credits") + " (retry)";
     setPending({ kind: o.kind, planId: o.plan, qty: o.qty, amount: o.amount, label });
   }
-  function downloadInvoice(o) {
-    const w = window.open("", "_blank"); if (!w) return;
-    const item = o.kind === "plan" ? (o.plan || "Plan") + " package" : (o.qty || "") + " addon credits";
-    const date = new Date(o.paid_at || o.created_at).toLocaleString();
-    const s = settings || {};
-    const RATE = Number(s.gst_rate != null ? s.gst_rate : 18); // GST %
-    const b = taxBreakup(o.amount, RATE, o.tax_type);
-    const taxable = b.taxable, gross = b.gross;
-    const HSN = s.hsn || "998314";
-    const BIZ = s.biz_name || "QR Studio";
-    const ADDR = s.biz_address || "";
-    const GSTIN = s.gstin ? "GSTIN: " + s.gstin : "GSTIN: __________ (set in Admin → Settings)";
-    const LOGO = s.logo_url ? '<img src="' + s.logo_url + '" alt="logo" style="max-height:56px;max-width:180px;margin-bottom:8px"/><br/>' : "";
-    const taxRows = b.igst
-      ? '<div><span>IGST @ ' + RATE + '%</span><span>₹' + b.igstAmt.toLocaleString() + '</span></div>'
-      : '<div><span>CGST @ ' + (RATE / 2) + '%</span><span>₹' + b.cgst.toLocaleString() + '</span></div>' +
-        '<div><span>SGST @ ' + (RATE / 2) + '%</span><span>₹' + b.sgst.toLocaleString() + '</span></div>';
-    const billedTo = (o.buyer_name ? '<b>' + o.buyer_name + '</b><br/>' : '') + (profile && profile.email ? profile.email : "Customer") +
-      (o.buyer_gstin ? '<div class="muted">GSTIN: ' + o.buyer_gstin + '</div>' : '') +
-      (o.buyer_city || o.buyer_state ? '<div class="muted">' + [o.buyer_city, o.buyer_state, o.buyer_pincode].filter(Boolean).join(", ") + '</div>' : '') +
-      (o.buyer_state ? '<div class="muted">Place of supply: ' + o.buyer_state + '</div>' : '');
-    w.document.write(
-      '<html><head><title>Invoice ' + (o.invoice_no || o.id) + '</title><style>' +
-      'body{font-family:Arial,sans-serif;color:#1b2138;max-width:720px;margin:auto;padding:32px}' +
-      '.head{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #5566f2;padding-bottom:14px}' +
-      '.brand{font-size:22px;font-weight:800}.muted{color:#5f6982;font-size:12px}' +
-      'table{width:100%;border-collapse:collapse;margin-top:22px;font-size:13px}' +
-      'th,td{border-bottom:1px solid #e2e7f1;padding:8px}th{color:#5f6982;font-size:11px;text-transform:uppercase;text-align:left}' +
-      'td.r,th.r{text-align:right}.summary{width:280px;margin-left:auto;margin-top:14px;font-size:13px}' +
-      '.summary div{display:flex;justify-content:space-between;padding:5px 0}.summary .tot{border-top:2px solid #1b2138;margin-top:6px;padding-top:8px;font-size:17px;font-weight:800}' +
-      '.tag{color:#5f6982;font-size:11px;margin-top:30px;line-height:1.6}' +
-      '</style></head><body>' +
-      '<div class="head"><div>' + LOGO + '<div class="brand">' + BIZ + '</div>' + (ADDR ? '<div class="muted">' + ADDR + '</div>' : '<div class="muted">Developed by Jupiter Technologies · Made in India</div>') + '<div class="muted">' + GSTIN + '</div></div>' +
-      '<div style="text-align:right"><div style="font-size:18px;font-weight:700">TAX INVOICE</div><div class="muted">' + (o.invoice_no || o.id) + '</div><div class="muted">' + date + '</div></div></div>' +
-      '<div style="margin-top:18px"><div class="muted">BILLED TO</div><div>' + billedTo + '</div></div>' +
-      '<table><thead><tr><th>Description</th><th class="r">HSN/SAC</th><th class="r">Taxable value</th></tr></thead>' +
-      '<tbody><tr><td>' + item + '</td><td class="r">' + HSN + '</td><td class="r">₹' + taxable.toLocaleString() + '</td></tr></tbody></table>' +
-      '<div class="summary">' +
-      '<div><span>Taxable value</span><span>₹' + taxable.toLocaleString() + '</span></div>' +
-      taxRows +
-      '<div class="tot"><span>Total (incl. GST)</span><span>₹' + gross.toLocaleString() + '</span></div>' +
-      '</div>' +
-      '<div class="tag">Order ID: ' + o.id + ' · Paid via Cashfree.<br/>Prices are inclusive of GST @ ' + RATE + '%. This is a system-generated invoice; a registered GSTIN can be added above once available.</div>' +
-      '<scr' + 'ipt>window.onload=function(){window.print()}</scr' + 'ipt></body></html>'
-    );
-    w.document.close();
-  }
+  function downloadInvoice(o) { openInvoice(o, settings, profile); }
 
   return (
     <>
