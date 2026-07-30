@@ -62,6 +62,14 @@ export default function Admin() {
   const paidOrders = (orders || []).filter((o) => o.status === "paid");
   const paidRevenue = paidOrders.reduce((a, o) => a + (o.amount || 0), 0);
   const emailById = {}; users.forEach((u) => (emailById[u.id] = u.email));
+  // last 12 months of paid revenue
+  const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const now = new Date();
+  const months = [];
+  for (let i = 11; i >= 0; i--) { const d = new Date(now.getFullYear(), now.getMonth() - i, 1); months.push({ key: d.getFullYear() + "-" + (d.getMonth() + 1), label: MON[d.getMonth()], yr: String(d.getFullYear()).slice(2), n: 0 }); }
+  const mmap = {}; months.forEach((m) => (mmap[m.key] = m));
+  paidOrders.forEach((o) => { const d = new Date(o.paid_at || o.created_at); const k = d.getFullYear() + "-" + (d.getMonth() + 1); if (mmap[k]) mmap[k].n += o.amount || 0; });
+  const maxM = Math.max(1, ...months.map((m) => m.n));
   const dist = ["starter", "growth", "pro"].map((id) => ({ id, n: users.filter((u) => u.plan === id).length }));
 
   return (
@@ -109,6 +117,19 @@ export default function Admin() {
               <K label="Paid orders" v={paidOrders.length} />
               <K label="All orders" v={(orders || []).length} />
               <K label="Pending / failed" v={(orders || []).filter((o) => o.status !== "paid").length} />
+            </div>
+            <div className="card" style={{ marginBottom: 18 }}>
+              <h3 style={{ fontSize: 16, marginBottom: 4 }}>Monthly revenue</h3>
+              <div style={{ fontSize: 12, color: "var(--soft)", marginBottom: 12 }}>Paid orders, last 12 months</div>
+              <div style={{ display: "flex", alignItems: "flex-end", gap: 6, height: 150 }}>
+                {months.map((m, i) => (
+                  <div key={i} title={"₹" + m.n.toLocaleString()} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+                    <div style={{ fontSize: 9.5, color: "var(--soft)" }}>{m.n ? "₹" + (m.n >= 1000 ? (m.n / 1000).toFixed(1) + "k" : m.n) : ""}</div>
+                    <div style={{ width: "100%", height: Math.max(3, (m.n / maxM) * 110), background: "linear-gradient(180deg,var(--accent),#12a583)", borderRadius: "5px 5px 0 0" }} />
+                    <span style={{ fontSize: 9.5, color: "var(--soft)" }}>{m.label}</span>
+                  </div>
+                ))}
+              </div>
             </div>
             <div className="card" style={{ marginBottom: 18 }}>
               <h3 style={{ fontSize: 16, marginBottom: 14 }}>Cashfree payments</h3>

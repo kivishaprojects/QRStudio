@@ -524,22 +524,35 @@ function Billing({ supabase, profile, plans, txns, orders, onChange, flash }) {
     const w = window.open("", "_blank"); if (!w) return;
     const item = o.kind === "plan" ? (o.plan || "Plan") + " package" : (o.qty || "") + " addon credits";
     const date = new Date(o.paid_at || o.created_at).toLocaleString();
+    const RATE = 18; // GST %
+    const gross = Number(o.amount) || 0;
+    const taxable = +(gross / (1 + RATE / 100)).toFixed(2);
+    const gst = +(gross - taxable).toFixed(2);
+    const half = +(gst / 2).toFixed(2);
+    const HSN = "998314"; // IT / software services
     w.document.write(
       '<html><head><title>Invoice ' + (o.invoice_no || o.id) + '</title><style>' +
       'body{font-family:Arial,sans-serif;color:#1b2138;max-width:720px;margin:auto;padding:32px}' +
       '.head{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #5566f2;padding-bottom:14px}' +
       '.brand{font-size:22px;font-weight:800}.muted{color:#5f6982;font-size:12px}' +
       'table{width:100%;border-collapse:collapse;margin-top:22px;font-size:13px}' +
-      'th,td{border-bottom:1px solid #e2e7f1;padding:9px 8px;text-align:left}th{color:#5f6982;font-size:11px;text-transform:uppercase}' +
-      '.tot{text-align:right;font-size:18px;font-weight:800;margin-top:14px}.tag{color:#5f6982;font-size:11px;margin-top:30px}' +
+      'th,td{border-bottom:1px solid #e2e7f1;padding:8px}th{color:#5f6982;font-size:11px;text-transform:uppercase;text-align:left}' +
+      'td.r,th.r{text-align:right}.summary{width:280px;margin-left:auto;margin-top:14px;font-size:13px}' +
+      '.summary div{display:flex;justify-content:space-between;padding:5px 0}.summary .tot{border-top:2px solid #1b2138;margin-top:6px;padding-top:8px;font-size:17px;font-weight:800}' +
+      '.tag{color:#5f6982;font-size:11px;margin-top:30px;line-height:1.6}' +
       '</style></head><body>' +
-      '<div class="head"><div><div class="brand">QR Studio</div><div class="muted">Developed by Jupiter Technologies · Made in India</div></div>' +
+      '<div class="head"><div><div class="brand">QR Studio</div><div class="muted">Developed by Jupiter Technologies · Made in India</div><div class="muted">GSTIN: __________ (add once registered)</div></div>' +
       '<div style="text-align:right"><div style="font-size:18px;font-weight:700">TAX INVOICE</div><div class="muted">' + (o.invoice_no || o.id) + '</div><div class="muted">' + date + '</div></div></div>' +
       '<div style="margin-top:18px"><div class="muted">BILLED TO</div><div>' + (profile && profile.email ? profile.email : "Customer") + '</div></div>' +
-      '<table><thead><tr><th>Description</th><th style="text-align:right">Amount</th></tr></thead>' +
-      '<tbody><tr><td>' + item + '</td><td style="text-align:right">₹' + o.amount + '</td></tr></tbody></table>' +
-      '<div class="tot">Total paid: ₹' + o.amount + '</div>' +
-      '<div class="tag">Order ID: ' + o.id + ' · Payment via Cashfree.<br/>This is a system-generated invoice. GSTIN can be added once your business is GST-registered.</div>' +
+      '<table><thead><tr><th>Description</th><th class="r">HSN/SAC</th><th class="r">Taxable value</th></tr></thead>' +
+      '<tbody><tr><td>' + item + '</td><td class="r">' + HSN + '</td><td class="r">₹' + taxable.toLocaleString() + '</td></tr></tbody></table>' +
+      '<div class="summary">' +
+      '<div><span>Taxable value</span><span>₹' + taxable.toLocaleString() + '</span></div>' +
+      '<div><span>CGST @ ' + (RATE / 2) + '%</span><span>₹' + half.toLocaleString() + '</span></div>' +
+      '<div><span>SGST @ ' + (RATE / 2) + '%</span><span>₹' + half.toLocaleString() + '</span></div>' +
+      '<div class="tot"><span>Total (incl. GST)</span><span>₹' + gross.toLocaleString() + '</span></div>' +
+      '</div>' +
+      '<div class="tag">Order ID: ' + o.id + ' · Paid via Cashfree.<br/>Prices are inclusive of GST @ ' + RATE + '%. This is a system-generated invoice; a registered GSTIN can be added above once available.</div>' +
       '<scr' + 'ipt>window.onload=function(){window.print()}</scr' + 'ipt></body></html>'
     );
     w.document.close();
