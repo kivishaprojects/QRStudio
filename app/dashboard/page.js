@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabaseBrowser } from "../../lib/supabaseBrowser";
 import { SITE_URL } from "../../lib/supabaseConfig";
-import QRCanvas, { drawQR } from "../../components/QRCanvas";
+import QRCanvas, { drawQR, composeBranded } from "../../components/QRCanvas";
 
 // Dynamic codes (URL type) encode a redirect through /r/<id> so the destination
 // can be edited after printing and scans are tracked. Other types stay static.
@@ -220,48 +220,91 @@ function Create({ supabase, profile, onSaved, onNoCredit, flash }) {
   );
 }
 
+function BrandedPreview({ opts, display = 220 }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    const c = composeBranded(opts);
+    const el = ref.current;
+    if (!el) return;
+    const scale = display / c.width;
+    el.width = Math.round(c.width * scale);
+    el.height = Math.round(c.height * scale);
+    const ctx = el.getContext("2d");
+    ctx.clearRect(0, 0, el.width, el.height);
+    ctx.drawImage(c, 0, 0, el.width, el.height);
+  }, [opts.qrData, opts.fg, opts.bg, opts.dot, opts.topText, opts.bottomText, opts.logoImg, display]);
+  return <canvas ref={ref} style={{ width: display, height: "auto", maxWidth: "100%", borderRadius: 8 }} />;
+}
+
 function Codes({ codes, setTab, supabase, onChange, flash }) {
   const [sel, setSel] = useState(null);
   const [name, setName] = useState("");
   const [content, setContent] = useState("");
+  const [topText, setTopText] = useState("");
+  const [bottomText, setBottomText] = useState("");
+  const [logoData, setLogoData] = useState(null);
+  const [logoImg, setLogoImg] = useState(null);
   const [busy, setBusy] = useState(false);
 
-  function open(c) { setSel(c); setName(c.name); setContent(c.content); }
+  function open(c) {
+    const s = c.style || {};
+    setSel(c); setName(c.name); setContent(c.content);
+    setTopText(s.brandTop != null ? s.brandTop : c.name);
+    setBottomText(s.brandBottom || "");
+    setLogoData(s.logo || null);
+    setLogoImg(null);
+    if (s.logo) { const im = new Image(); im.onload = () => setLogoImg(im); im.src = s.logo; }
+  }
   function close() { setSel(null); }
 
   const style = (sel && sel.style) || {};
   const fg = style.fg || "#181b3a", bg = style.bg || "#ffffff", dot = style.dot || "square";
-  // Dynamic codes encode the redirect (constant); editing content changes where it points.
   const qrData = sel ? (sel.dynamic ? `${SITE_URL}/r/${sel.id}` : (content || sel.content || " ")) : " ";
+  const brandOpts = { qrData, fg, bg, dot, topText, bottomText, logoImg };
 
-  function tempCanvas(size) {
-    const c = document.createElement("canvas");
-    drawQR(c, { data: qrData, fg, bg, dot, ecl: "M", size });
-    return c;
+  function onLogo(file) {
+    if (!file) return;
+    const r = new FileReader();
+    r.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const max = 300; let w = img.width, h = img.height;
+        if (Math.max(w, h) > max) { const sc = max / Math.max(w, h); w = Math.round(w * sc); h = Math.round(h * sc); }
+        const cc = document.createElement("canvas"); cc.width = w; cc.height = h;
+        cc.getContext("2d").drawImage(img, 0, 0, w, h);
+        const data = cc.toDataURL("image/png");
+        const im = new Image(); im.onload = () => { setLogoImg(im); setLogoData(data); }; im.src = data;
+      };
+      img.src = r.result;
+    };
+    r.readAsDataURL(file);
   }
+
   function download() {
     const a = document.createElement("a");
-    a.href = tempCanvas(900).toDataURL("image/png");
+    a.href = composeBranded(brandOpts).toDataURL("image/png");
     a.download = (name || "qr") + ".png";
     a.click();
-    flash("PNG downloaded");
+    flash("Branded PNG downloaded");
   }
   function printQR() {
-    const url = tempCanvas(900).toDataURL("image/png");
+    const url = composeBranded(brandOpts).toDataURL("image/png");
     const w = window.open("", "_blank");
     if (!w) { flash("Allow pop-ups to print"); return; }
     w.document.write(
       '<html><head><title>' + (name || "QR") + '</title></head>' +
-      '<body style="margin:0;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;font-family:sans-serif">' +
-      '<img src="' + url + '" style="width:340px;height:340px"/>' +
-      '<div style="margin-top:14px;font-size:18px">' + (name || "") + '</div>' +
+      '<body style="margin:0;display:flex;align-items:center;justify-content:center;min-height:100vh">' +
+      '<img src="' + url + '" style="max-width:420px;width:90%"/>' +
       '<scr' + 'ipt>window.onload=function(){window.print()}</scr' + 'ipt></body></html>'
     );
     w.document.close();
   }
+  function buildStyle() {
+    return { fg, bg, dot, brandTop: topText, brandBottom: bottomText, logo: logoData || null };
+  }
   async function save() {
     setBusy(true);
-    const { error } = await supabase.rpc("qr_update_code", { p_id: sel.id, p_name: name, p_content: content, p_style: null });
+    const { error } = await supabase.rpc("qr_update_code", { p_id: sel.id, p_name: name, p_content: content, p_style: buildStyle() });
     setBusy(false);
     if (error) return flash("Error: " + error.message);
     flash("✅ Saved"); close(); onChange();
@@ -300,34 +343,45 @@ function Codes({ codes, setTab, supabase, onChange, flash }) {
 
       {sel && (
         <div onClick={close} style={{ position: "fixed", inset: 0, background: "rgba(20,25,50,.45)", backdropFilter: "blur(3px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100, padding: 20 }}>
-          <div onClick={(e) => e.stopPropagation()} className="card" style={{ width: "100%", maxWidth: 560, maxHeight: "90vh", overflowY: "auto" }}>
+          <div onClick={(e) => e.stopPropagation()} className="card" style={{ width: "100%", maxWidth: 640, maxHeight: "92vh", overflowY: "auto" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-              <h3 style={{ fontSize: 17 }}>Manage QR code</h3>
+              <h3 style={{ fontSize: 17 }}>Manage &amp; brand QR code</h3>
               <button className="btn btn-ghost btn-sm" onClick={close}>✕ Close</button>
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: 20, alignItems: "start" }}>
-              <div style={{ background: "#fff", borderRadius: 14, padding: 14, border: "1px solid var(--line)" }}>
-                <QRCanvas value={qrData} fg={fg} bg={bg} dot={dot} ecl="M" display={180} />
+            <div style={{ display: "grid", gridTemplateColumns: "240px 1fr", gap: 20, alignItems: "start" }}>
+              <div style={{ background: "#fff", borderRadius: 14, padding: 12, border: "1px solid var(--line)", textAlign: "center" }}>
+                <BrandedPreview opts={brandOpts} display={216} />
+                <div style={{ fontSize: 11, color: "var(--soft)", marginTop: 6 }}>Download preview</div>
               </div>
               <div>
-                <div className="field"><label>Name</label><input value={name} onChange={(e) => setName(e.target.value)} /></div>
-                <div className="field"><label>Destination / content (edit the link here)</label><textarea value={content} onChange={(e) => setContent(e.target.value)} /></div>
-                <div style={{ fontSize: 12, color: "var(--soft)" }}>
+                <div className="field"><label>Code name (internal)</label><input value={name} onChange={(e) => setName(e.target.value)} /></div>
+                <div className="field"><label>Destination / content (edit the link here)</label><textarea value={content} onChange={(e) => setContent(e.target.value)} style={{ minHeight: 60 }} /></div>
+                <div style={{ borderTop: "1px solid var(--line)", margin: "6px 0 12px", paddingTop: 10, fontSize: 12.5, fontWeight: 600, color: "var(--soft)" }}>BRANDING (shown on download &amp; print)</div>
+                <div className="field"><label>Top title / brand name</label><input value={topText} onChange={(e) => setTopText(e.target.value)} placeholder="e.g. Spice Route Café" /></div>
+                <div className="field"><label>Bottom text</label><input value={bottomText} onChange={(e) => setBottomText(e.target.value)} placeholder="e.g. Scan for our menu" /></div>
+                <div className="field" style={{ marginBottom: 0 }}>
+                  <label>Logo (top, optional)</label>
+                  <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                    <input type="file" accept="image/*" onChange={(e) => onLogo(e.target.files && e.target.files[0])} style={{ fontSize: 12 }} />
+                    {logoData && <button className="btn btn-ghost btn-sm" onClick={() => { setLogoData(null); setLogoImg(null); }}>Remove logo</button>}
+                  </div>
+                </div>
+                <div style={{ fontSize: 12, color: "var(--soft)", marginTop: 10 }}>
                   Scans: <b>{sel.scans}</b> · <span className={"pill " + (sel.dynamic ? "dyn" : "stat")}>{sel.dynamic ? "Dynamic" : "Static"}</span>
                 </div>
               </div>
             </div>
             <div style={{ display: "flex", gap: 9, flexWrap: "wrap", marginTop: 16 }}>
-              <button className="btn btn-primary" onClick={save} disabled={busy}>💾 Save changes</button>
+              <button className="btn btn-primary" onClick={save} disabled={busy}>💾 Save</button>
               <button className="btn btn-ghost" onClick={download}>⬇ Download PNG</button>
               <button className="btn btn-ghost" onClick={printQR}>🖨 Print</button>
               <button className="btn btn-ghost" onClick={del} disabled={busy} style={{ marginLeft: "auto", color: "var(--danger)" }}>🗑 Delete</button>
             </div>
             <div style={{ marginTop: 12, fontSize: 12, color: "var(--soft)", background: "var(--card2)", border: "1px solid var(--line)", borderRadius: 10, padding: 10 }}>
               {sel.dynamic ? (
-                <>This is a <b style={{ color: "var(--accent)" }}>dynamic QR</b>. The printed image never changes — just edit the destination above and Save, and every scan (even of already-printed codes) redirects to the new link. Scans are tracked automatically. (Editing is free.)</>
+                <>This is a <b style={{ color: "var(--accent)" }}>dynamic QR</b> — the code image never changes, so you can edit the destination anytime and every scan (even of printed codes) follows the new link. Branding &amp; text are added around the code on download. Save to remember your branding.</>
               ) : (
-                <>This is a <b>static QR</b> — editing changes what it encodes, so <b>re-download or reprint</b> after saving. (Editing is free.)</>
+                <>This is a <b>static QR</b> — editing the content changes the code, so re-download after saving. Branding &amp; text are added around the code on download.</>
               )}
             </div>
           </div>
