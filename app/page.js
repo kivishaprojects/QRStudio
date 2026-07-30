@@ -94,6 +94,12 @@ export default function Home() {
       </section>
 
       <footer style={{ borderTop: "1px solid var(--line)", padding: "40px 0", textAlign: "center", color: "var(--soft)", fontSize: 13 }}>
+        <div style={{ display: "flex", gap: 18, justifyContent: "center", flexWrap: "wrap", marginBottom: 14 }}>
+          <Link href="/pricing" style={{ color: "var(--soft)" }}>Pricing</Link>
+          <Link href="/contact" style={{ color: "var(--soft)" }}>Contact Us</Link>
+          <Link href="/terms" style={{ color: "var(--soft)" }}>Terms &amp; Conditions</Link>
+          <Link href="/refunds" style={{ color: "var(--soft)" }}>Refunds &amp; Cancellations</Link>
+        </div>
         © 2026 India QRCode · Developed By : Jupiter Technologies : Made in India
       </footer>
     </main>
