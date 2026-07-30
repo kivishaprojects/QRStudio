@@ -11,7 +11,7 @@ export default function Admin() {
   const router = useRouter();
   const supabase = supabaseBrowser();
   const [me, setMe] = useState(null);
-  const [data, setData] = useState({ users: [], codes: [], txns: [], orders: [], settings: null, tickets: [], coupons: [], audit: [] });
+  const [data, setData] = useState({ users: [], codes: [], txns: [], orders: [], settings: null, tickets: [], coupons: [], audit: [], backups: [] });
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState("overview");
   const [msg, setMsg] = useState("");
@@ -50,7 +50,8 @@ export default function Admin() {
         supabase.from("qs_coupons").select("*").order("created_at", { ascending: false }),
         supabase.from("qs_admin_audit").select("*").order("created_at", { ascending: false }).limit(200),
       ]);
-      setData({ users: users || [], codes: codes || [], txns: txns || [], orders: orders || [], settings: settings || null, tickets: tickets || [], coupons: coupons || [], audit: audit || [] });
+      const { data: backups } = await supabase.from("qs_backups").select("id,created_at,kind,row_counts,size_bytes").order("created_at", { ascending: false }).limit(50);
+      setData({ users: users || [], codes: codes || [], txns: txns || [], orders: orders || [], settings: settings || null, tickets: tickets || [], coupons: coupons || [], audit: audit || [], backups: backups || [] });
       if (settings) setSform({ gst_rate: String(settings.gst_rate ?? 18), gstin: settings.gstin || "", biz_name: settings.biz_name || "", biz_address: settings.biz_address || "", hsn: settings.hsn || "", logo_url: settings.logo_url || "" });
       setAform({ phone: prof.phone || "" });
     }
@@ -157,7 +158,7 @@ export default function Admin() {
     );
   }
 
-  const { users, codes, txns, orders, tickets, coupons, audit } = data;
+  const { users, codes, txns, orders, tickets, coupons, audit, backups } = data;
   const paying = users.filter((u) => u.plan !== "free").length;
   const totalScans = codes.reduce((a, c) => a + (c.scans || 0), 0);
   const revenue = txns.reduce((a, t) => a + (t.amount || 0), 0);
@@ -243,7 +244,7 @@ export default function Admin() {
     <div style={{ display: "grid", gridTemplateColumns: "230px 1fr", minHeight: "100vh" }}>
       <aside style={{ background: "var(--bg2)", borderRight: "1px solid var(--line)", padding: "20px 15px", position: "sticky", top: 0, height: "100vh" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, fontWeight: 800, fontSize: 17, padding: "6px 8px 18px" }}><span className="logo">▦</span> Admin</div>
-        {[["overview", "▨ Overview"], ["users", "👥 Users"], ["revenue", "₹ Revenue"], ["bills", "🧾 Bills Generated"], ["codes", "▤ QR Codes"], ["coupons", "🎟 Coupons"], ["support", "🛟 Support"], ["audit", "📜 Audit Log"], ["settings", "⚙ Settings"]].map(([id, l]) => {
+        {[["overview", "▨ Overview"], ["users", "👥 Users"], ["revenue", "₹ Revenue"], ["bills", "🧾 Bills Generated"], ["codes", "▤ QR Codes"], ["coupons", "🎟 Coupons"], ["support", "🛟 Support"], ["audit", "📜 Audit Log"], ["backup", "💾 Backup"], ["settings", "⚙ Settings"]].map(([id, l]) => {
           const openCount = id === "support" ? (data.tickets || []).filter((t) => t.status === "open" || t.status === "in_progress").length : 0;
           return (
           <div key={id} onClick={() => setTab(id)} style={{ padding: "11px 13px", borderRadius: 11, marginBottom: 3, fontSize: 14, cursor: "pointer", color: tab === id ? "#fff" : "var(--soft)", background: tab === id ? "linear-gradient(135deg,var(--brand),var(--brand2))" : "transparent", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -423,6 +424,10 @@ export default function Admin() {
               </div>
             )}
           </div>
+        )}
+
+        {tab === "backup" && (
+          <AdminBackup supabase={supabase} backups={backups || []} onChange={load} flash={flash} />
         )}
 
         {tab === "support" && (
@@ -648,6 +653,122 @@ const TICKET_STATUS = {
 function TStatus({ s }) {
   const m = TICKET_STATUS[s] || { label: s, cls: "starter" };
   return <span className={"pill " + m.cls}>{m.label}</span>;
+}
+
+function fmtBytes(n) {
+  n = Number(n) || 0;
+  if (n < 1024) return n + " B";
+  if (n < 1048576) return (n / 1024).toFixed(1) + " KB";
+  return (n / 1048576).toFixed(2) + " MB";
+}
+
+function AdminBackup({ supabase, backups, onChange, flash }) {
+  const [busy, setBusy] = useState("");
+  const [result, setResult] = useState(null);
+
+  async function snapshotNow() {
+    setBusy("snap");
+    const { error } = await supabase.rpc("qr_admin_create_backup");
+    setBusy("");
+    if (error) flash("Error: " + error.message);
+    else { flash("✅ Snapshot created"); onChange(); }
+  }
+  async function downloadSnapshot(b) {
+    setBusy(b.id);
+    const { data, error } = await supabase.from("qs_backups").select("tables,created_at").eq("id", b.id).single();
+    setBusy("");
+    if (error) { flash("Error: " + error.message); return; }
+    const payload = { app: "India QRCode", version: 1, generated_at: data.created_at, tables: data.tables };
+    const blob = new Blob([JSON.stringify(payload)], { type: "application/json" });
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob);
+    a.download = "indiaqrcode-snapshot-" + new Date(b.created_at).toISOString().slice(0, 10) + ".json"; a.click();
+  }
+  async function restore(payload, label) {
+    if (!window.confirm(`Restore data from ${label}? Existing records with matching IDs will be overwritten with the backup values. This does not delete newer records.`)) return;
+    setBusy("restore"); setResult(null);
+    try {
+      const res = await fetch("/api/admin/restore", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || "Restore failed");
+      setResult(j.report); flash("✅ Restore complete"); onChange();
+    } catch (e) { flash("Error: " + e.message); }
+    setBusy("");
+  }
+  function restoreFromFile(e) {
+    const f = e.target.files && e.target.files[0];
+    if (!f) return;
+    const rd = new FileReader();
+    rd.onload = () => {
+      try {
+        const parsed = JSON.parse(String(rd.result));
+        const tables = parsed.tables || parsed;
+        restore({ tables }, "the uploaded file");
+      } catch (_) { flash("That file isn't a valid backup JSON."); }
+    };
+    rd.readAsText(f);
+    e.target.value = "";
+  }
+
+  return (
+    <div style={{ display: "grid", gap: 18, maxWidth: 820 }}>
+      <div className="card">
+        <h3 style={{ fontSize: 16, marginBottom: 4 }}>Backup</h3>
+        <p style={{ fontSize: 13, color: "var(--soft)", marginBottom: 14 }}>Automatic snapshots run daily. You can also take one now, or download a complete backup (including scan analytics) to keep off-site.</p>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          <a className="btn btn-primary btn-sm" href="/api/admin/backup">⬇ Download full backup (JSON)</a>
+          <button className="btn btn-ghost btn-sm" onClick={snapshotNow} disabled={busy === "snap"}>{busy === "snap" ? "…" : "📸 Create snapshot now"}</button>
+          <label className="btn btn-ghost btn-sm" style={{ cursor: "pointer" }}>
+            ⬆ Restore from file
+            <input type="file" accept="application/json,.json" onChange={restoreFromFile} style={{ display: "none" }} />
+          </label>
+        </div>
+      </div>
+
+      {result && (
+        <div className="card">
+          <h3 style={{ fontSize: 15, marginBottom: 10 }}>Restore result</h3>
+          <table><thead><tr><th>Table</th><th>Restored</th><th>Skipped</th></tr></thead>
+            <tbody>{Object.entries(result).map(([t, r]) => (
+              <tr key={t}><td>{t}</td><td>{r.restored}</td><td style={{ color: r.skipped ? "#c0392b" : "var(--soft)" }}>{r.skipped}{r.error ? " (" + r.error + ")" : ""}</td></tr>
+            ))}</tbody>
+          </table>
+        </div>
+      )}
+
+      <div className="card">
+        <h3 style={{ fontSize: 16, marginBottom: 14 }}>Snapshots ({backups.length})</h3>
+        {backups.length === 0 ? <p style={{ color: "var(--soft)" }}>No snapshots yet. One is created automatically each day.</p> : (
+          <div style={{ overflowX: "auto" }}>
+            <table><thead><tr><th>When</th><th>Type</th><th>Records</th><th>Size</th><th></th></tr></thead>
+              <tbody>{backups.map((b) => {
+                const total = b.row_counts ? Object.values(b.row_counts).reduce((a, n) => a + Number(n || 0), 0) : 0;
+                return (
+                  <tr key={b.id}>
+                    <td style={{ fontSize: 12.5 }}>{new Date(b.created_at).toLocaleString()}</td>
+                    <td><span className={"pill " + (b.kind === "manual" ? "pro" : "starter")}>{b.kind}</span></td>
+                    <td style={{ fontSize: 12.5 }}>{total} rows</td>
+                    <td style={{ fontSize: 12.5, color: "var(--soft)" }}>{fmtBytes(b.size_bytes)}</td>
+                    <td>
+                      <div style={{ display: "flex", gap: 5 }}>
+                        <button className="btn btn-ghost btn-sm" disabled={busy === b.id} onClick={() => downloadSnapshot(b)}>Download</button>
+                        <button className="btn btn-ghost btn-sm" disabled={busy === "restore"} onClick={() => restore({ snapshotId: b.id }, "this snapshot")}>Restore</button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}</tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      <div className="card" style={{ background: "var(--card2)" }}>
+        <p style={{ fontSize: 12.5, color: "var(--soft)", margin: 0, lineHeight: 1.6 }}>
+          <b>Tip:</b> these logical snapshots protect against accidental deletion or bad edits. For full protection against a database failure, also enable <b>Point-in-Time Recovery</b> in your Supabase dashboard (Database → Backups) and download a full backup here periodically to store off-site.
+        </p>
+      </div>
+    </div>
+  );
 }
 
 function AdminCoupons({ supabase, coupons, onChange, flash }) {
