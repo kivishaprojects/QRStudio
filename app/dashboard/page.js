@@ -31,7 +31,7 @@ export default function Dashboard() {
     const [{ data: prof }, { data: pl }, { data: cs }, { data: tx }] = await Promise.all([
       supabase.from("qr_profiles").select("*").eq("id", user.id).single(),
       supabase.from("qr_plans").select("*").order("sort"),
-      supabase.from("qr_codes").select("*").order("created_at", { ascending: false }),
+      supabase.from("qs_codes").select("*").order("created_at", { ascending: false }),
       supabase.from("qr_transactions").select("*").order("created_at", { ascending: false }),
     ]);
     setProfile(prof); setPlans(pl || []); setCodes(cs || []); setTxns(tx || []);

@@ -22,7 +22,7 @@ export default function Admin() {
     if (prof?.role === "admin") {
       const [{ data: users }, { data: codes }, { data: txns }] = await Promise.all([
         supabase.from("qr_profiles").select("*").order("created_at", { ascending: false }),
-        supabase.from("qr_codes").select("*"),
+        supabase.from("qs_codes").select("*"),
         supabase.from("qr_transactions").select("*").order("created_at", { ascending: false }),
       ]);
       setData({ users: users || [], codes: codes || [], txns: txns || [] });
