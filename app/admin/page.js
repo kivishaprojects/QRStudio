@@ -8,10 +8,12 @@ export default function Admin() {
   const router = useRouter();
   const supabase = supabaseBrowser();
   const [me, setMe] = useState(null);
-  const [data, setData] = useState({ users: [], codes: [], txns: [], orders: [] });
+  const [data, setData] = useState({ users: [], codes: [], txns: [], orders: [], settings: null });
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState("overview");
   const [msg, setMsg] = useState("");
+  const [sform, setSform] = useState({ gst_rate: "18", gstin: "", biz_name: "", biz_address: "", hsn: "" });
+  const [savingSet, setSavingSet] = useState(false);
 
   const load = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
@@ -20,17 +22,30 @@ export default function Admin() {
     const { data: prof } = await supabase.from("qr_profiles").select("*").eq("id", user.id).single();
     setMe(prof);
     if (prof?.role === "admin") {
-      const [{ data: users }, { data: codes }, { data: txns }, { data: orders }] = await Promise.all([
+      const [{ data: users }, { data: codes }, { data: txns }, { data: orders }, { data: settings }] = await Promise.all([
         supabase.from("qr_profiles").select("*").order("created_at", { ascending: false }),
         supabase.from("qs_codes").select("*"),
         supabase.from("qr_transactions").select("*").order("created_at", { ascending: false }),
         supabase.from("qs_orders").select("*").order("created_at", { ascending: false }),
+        supabase.from("qs_settings").select("*").eq("id", 1).single(),
       ]);
-      setData({ users: users || [], codes: codes || [], txns: txns || [], orders: orders || [] });
+      setData({ users: users || [], codes: codes || [], txns: txns || [], orders: orders || [], settings: settings || null });
+      if (settings) setSform({ gst_rate: String(settings.gst_rate ?? 18), gstin: settings.gstin || "", biz_name: settings.biz_name || "", biz_address: settings.biz_address || "", hsn: settings.hsn || "" });
     }
     setLoading(false);
   }, [router, supabase]);
   useEffect(() => { load(); }, [load]);
+
+  async function saveSettings() {
+    setSavingSet(true);
+    const { error } = await supabase.rpc("qr_save_settings", {
+      p_gst_rate: Number(sform.gst_rate) || 0, p_gstin: sform.gstin || null,
+      p_biz_name: sform.biz_name || null, p_biz_address: sform.biz_address || null, p_hsn: sform.hsn || null,
+    });
+    setSavingSet(false);
+    if (error) setMsg("Error: " + error.message);
+    else { setMsg("✅ Settings saved"); load(); setTimeout(() => setMsg(""), 2500); }
+  }
 
   async function claimAdmin() {
     const { error } = await supabase.rpc("qr_claim_admin");
@@ -70,13 +85,30 @@ export default function Admin() {
   const mmap = {}; months.forEach((m) => (mmap[m.key] = m));
   paidOrders.forEach((o) => { const d = new Date(o.paid_at || o.created_at); const k = d.getFullYear() + "-" + (d.getMonth() + 1); if (mmap[k]) mmap[k].n += o.amount || 0; });
   const maxM = Math.max(1, ...months.map((m) => m.n));
+
+  const RATE = Number((data.settings && data.settings.gst_rate) != null ? data.settings.gst_rate : 18);
+  function exportGstCsv() {
+    const head = ["Invoice No", "Invoice Date", "Customer", "Item", "GST Rate %", "Taxable Value", "CGST", "SGST", "Total (incl GST)", "Order ID"];
+    const rows = paidOrders.map((o) => {
+      const gross = Number(o.amount) || 0;
+      const taxable = +(gross / (1 + RATE / 100)).toFixed(2);
+      const gst = +(gross - taxable).toFixed(2);
+      const half = +(gst / 2).toFixed(2);
+      const item = o.kind === "plan" ? (o.plan || "plan") + " package" : (o.qty || "") + " addon credits";
+      return [o.invoice_no || "", new Date(o.paid_at || o.created_at).toISOString().slice(0, 10), emailById[o.user_id] || "", item, RATE, taxable, half, half, gross, o.id];
+    });
+    const csv = [head, ...rows].map((r) => r.map((v) => '"' + String(v).replace(/"/g, '""') + '"').join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "gst-report.csv"; a.click();
+  }
+  const inp = { width: "100%", background: "#ffffff", border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px", color: "var(--txt)", fontFamily: "inherit", fontSize: 14 };
   const dist = ["starter", "growth", "pro"].map((id) => ({ id, n: users.filter((u) => u.plan === id).length }));
 
   return (
     <div style={{ display: "grid", gridTemplateColumns: "230px 1fr", minHeight: "100vh" }}>
       <aside style={{ background: "var(--bg2)", borderRight: "1px solid var(--line)", padding: "20px 15px", position: "sticky", top: 0, height: "100vh" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, fontWeight: 800, fontSize: 17, padding: "6px 8px 18px" }}><span className="logo">▦</span> Admin</div>
-        {[["overview", "▨ Overview"], ["users", "👥 Users"], ["revenue", "₹ Revenue"], ["codes", "▤ QR Codes"]].map(([id, l]) => (
+        {[["overview", "▨ Overview"], ["users", "👥 Users"], ["revenue", "₹ Revenue"], ["codes", "▤ QR Codes"], ["settings", "⚙ Settings"]].map(([id, l]) => (
           <div key={id} onClick={() => setTab(id)} style={{ padding: "11px 13px", borderRadius: 11, marginBottom: 3, fontSize: 14, cursor: "pointer", color: tab === id ? "#fff" : "var(--soft)", background: tab === id ? "linear-gradient(135deg,var(--brand),var(--brand2))" : "transparent" }}>{l}</div>
         ))}
         <Link href="/dashboard" style={{ padding: "11px 13px", display: "block", fontSize: 14, color: "var(--soft)", marginTop: 8 }}>← User dashboard</Link>
@@ -132,7 +164,10 @@ export default function Admin() {
               </div>
             </div>
             <div className="card" style={{ marginBottom: 18 }}>
-              <h3 style={{ fontSize: 16, marginBottom: 14 }}>Cashfree payments</h3>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+                <h3 style={{ fontSize: 16 }}>Cashfree payments</h3>
+                <button className="btn btn-primary btn-sm" onClick={exportGstCsv}>⬇ GST report (CSV)</button>
+              </div>
               {(!orders || orders.length === 0) ? <p style={{ color: "var(--soft)" }}>No payment orders yet.</p> : (
                 <table><thead><tr><th>Date</th><th>Invoice</th><th>User</th><th>Item</th><th>Amount</th><th>Status</th></tr></thead>
                   <tbody>{orders.map((o) => (
@@ -162,6 +197,36 @@ export default function Admin() {
             <table><thead><tr><th>Name</th><th>Type</th><th>Scans</th><th>Status</th></tr></thead>
               <tbody>{codes.map((c) => <tr key={c.id}><td><b>{c.name}</b></td><td>{c.type}</td><td>{c.scans}</td><td><span className={"pill " + (c.dynamic ? "dyn" : "stat")}>{c.dynamic ? "Dynamic" : "Static"}</span></td></tr>)}</tbody>
             </table>
+          </div>
+        )}
+        {tab === "settings" && (
+          <div className="card" style={{ maxWidth: 620 }}>
+            <h3 style={{ fontSize: 16, marginBottom: 4 }}>Tax &amp; business settings</h3>
+            <p style={{ fontSize: 13, color: "var(--soft)", marginBottom: 16 }}>These appear on customer invoices, receipts, and the GST report.</p>
+            {msg && <div style={{ color: "var(--accent)", fontSize: 13, marginBottom: 12 }}>{msg}</div>}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <div style={{ marginBottom: 12 }}>
+                <label style={{ display: "block", fontSize: 12.5, color: "var(--soft)", marginBottom: 5 }}>GST rate (%)</label>
+                <input type="number" step="0.1" value={sform.gst_rate} onChange={(e) => setSform({ ...sform, gst_rate: e.target.value })} style={inp} />
+              </div>
+              <div style={{ marginBottom: 12 }}>
+                <label style={{ display: "block", fontSize: 12.5, color: "var(--soft)", marginBottom: 5 }}>GSTIN</label>
+                <input value={sform.gstin} onChange={(e) => setSform({ ...sform, gstin: e.target.value })} placeholder="e.g. 24ABCDE1234F1Z5" style={inp} />
+              </div>
+            </div>
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ display: "block", fontSize: 12.5, color: "var(--soft)", marginBottom: 5 }}>Business name (on invoice)</label>
+              <input value={sform.biz_name} onChange={(e) => setSform({ ...sform, biz_name: e.target.value })} placeholder="QR Studio" style={inp} />
+            </div>
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ display: "block", fontSize: 12.5, color: "var(--soft)", marginBottom: 5 }}>Business address</label>
+              <input value={sform.biz_address} onChange={(e) => setSform({ ...sform, biz_address: e.target.value })} placeholder="Street, City, State, PIN" style={inp} />
+            </div>
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: "block", fontSize: 12.5, color: "var(--soft)", marginBottom: 5 }}>HSN / SAC code</label>
+              <input value={sform.hsn} onChange={(e) => setSform({ ...sform, hsn: e.target.value })} placeholder="998314" style={inp} />
+            </div>
+            <button className="btn btn-primary" onClick={saveSettings} disabled={savingSet}>{savingSet ? "Saving…" : "Save settings"}</button>
           </div>
         )}
       </div>

@@ -35,6 +35,7 @@ export default function Dashboard() {
   const [txns, setTxns] = useState([]);
   const [scans, setScans] = useState([]);
   const [orders, setOrders] = useState([]);
+  const [settings, setSettings] = useState(null);
   const [toast, setToast] = useState("");
   const [loading, setLoading] = useState(true);
 
@@ -42,15 +43,16 @@ export default function Dashboard() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { router.push("/login"); return; }
     await supabase.rpc("qr_ensure_profile", { p_name: null });
-    const [{ data: prof }, { data: pl }, { data: cs }, { data: tx }, { data: sc }, { data: od }] = await Promise.all([
+    const [{ data: prof }, { data: pl }, { data: cs }, { data: tx }, { data: sc }, { data: od }, { data: st }] = await Promise.all([
       supabase.from("qr_profiles").select("*").eq("id", user.id).single(),
       supabase.from("qr_plans").select("*").order("sort"),
       supabase.from("qs_codes").select("*").order("created_at", { ascending: false }),
       supabase.from("qr_transactions").select("*").order("created_at", { ascending: false }),
       supabase.from("qs_scans").select("*").order("scanned_at", { ascending: false }).limit(1000),
       supabase.from("qs_orders").select("*").order("created_at", { ascending: false }),
+      supabase.from("qs_settings").select("*").eq("id", 1).single(),
     ]);
-    setProfile(prof); setPlans(pl || []); setCodes(cs || []); setTxns(tx || []); setScans(sc || []); setOrders(od || []);
+    setProfile(prof); setPlans(pl || []); setCodes(cs || []); setTxns(tx || []); setScans(sc || []); setOrders(od || []); setSettings(st || null);
     setLoading(false);
   }, [router, supabase]);
 
@@ -99,7 +101,7 @@ export default function Dashboard() {
           {tab === "overview" && <Overview profile={profile} codes={codes} totalScans={totalScans} planName={planName} setTab={setTab} />}
           {tab === "create" && <Create supabase={supabase} profile={profile} onSaved={() => { load(); flash("✅ QR saved — 1 credit used"); setTab("codes"); }} onNoCredit={() => setTab("billing")} flash={flash} />}
           {tab === "codes" && <Codes codes={codes} setTab={setTab} supabase={supabase} onChange={load} flash={flash} onViewAnalytics={(id) => { setAnalyticsCode(id); setTab("analytics"); }} />}
-          {tab === "billing" && <Billing supabase={supabase} profile={profile} plans={plans} txns={txns} orders={orders} onChange={load} flash={flash} />}
+          {tab === "billing" && <Billing supabase={supabase} profile={profile} plans={plans} txns={txns} orders={orders} settings={settings} onChange={load} flash={flash} />}
           {tab === "analytics" && <Analytics codes={codes} scans={scans} totalScans={totalScans} initialCode={analyticsCode} />}
         </div>
       </div>
@@ -448,7 +450,7 @@ function Codes({ codes, setTab, supabase, onChange, flash, onViewAnalytics }) {
   );
 }
 
-function Billing({ supabase, profile, plans, txns, orders, onChange, flash }) {
+function Billing({ supabase, profile, plans, txns, orders, settings, onChange, flash }) {
   const [qty, setQty] = useState(5);
   const [busy, setBusy] = useState(false);
   const [phone, setPhone] = useState("");
@@ -524,12 +526,16 @@ function Billing({ supabase, profile, plans, txns, orders, onChange, flash }) {
     const w = window.open("", "_blank"); if (!w) return;
     const item = o.kind === "plan" ? (o.plan || "Plan") + " package" : (o.qty || "") + " addon credits";
     const date = new Date(o.paid_at || o.created_at).toLocaleString();
-    const RATE = 18; // GST %
+    const s = settings || {};
+    const RATE = Number(s.gst_rate != null ? s.gst_rate : 18); // GST %
     const gross = Number(o.amount) || 0;
     const taxable = +(gross / (1 + RATE / 100)).toFixed(2);
     const gst = +(gross - taxable).toFixed(2);
     const half = +(gst / 2).toFixed(2);
-    const HSN = "998314"; // IT / software services
+    const HSN = s.hsn || "998314";
+    const BIZ = s.biz_name || "QR Studio";
+    const ADDR = s.biz_address || "";
+    const GSTIN = s.gstin ? "GSTIN: " + s.gstin : "GSTIN: __________ (set in Admin → Settings)";
     w.document.write(
       '<html><head><title>Invoice ' + (o.invoice_no || o.id) + '</title><style>' +
       'body{font-family:Arial,sans-serif;color:#1b2138;max-width:720px;margin:auto;padding:32px}' +
@@ -541,7 +547,7 @@ function Billing({ supabase, profile, plans, txns, orders, onChange, flash }) {
       '.summary div{display:flex;justify-content:space-between;padding:5px 0}.summary .tot{border-top:2px solid #1b2138;margin-top:6px;padding-top:8px;font-size:17px;font-weight:800}' +
       '.tag{color:#5f6982;font-size:11px;margin-top:30px;line-height:1.6}' +
       '</style></head><body>' +
-      '<div class="head"><div><div class="brand">QR Studio</div><div class="muted">Developed by Jupiter Technologies · Made in India</div><div class="muted">GSTIN: __________ (add once registered)</div></div>' +
+      '<div class="head"><div><div class="brand">' + BIZ + '</div>' + (ADDR ? '<div class="muted">' + ADDR + '</div>' : '<div class="muted">Developed by Jupiter Technologies · Made in India</div>') + '<div class="muted">' + GSTIN + '</div></div>' +
       '<div style="text-align:right"><div style="font-size:18px;font-weight:700">TAX INVOICE</div><div class="muted">' + (o.invoice_no || o.id) + '</div><div class="muted">' + date + '</div></div></div>' +
       '<div style="margin-top:18px"><div class="muted">BILLED TO</div><div>' + (profile && profile.email ? profile.email : "Customer") + '</div></div>' +
       '<table><thead><tr><th>Description</th><th class="r">HSN/SAC</th><th class="r">Taxable value</th></tr></thead>' +
