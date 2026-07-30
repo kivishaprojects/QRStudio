@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 import { SITE_URL } from "../../../../lib/supabaseConfig";
+import { hasFeature } from "../../../../lib/features";
 
 export const dynamic = "force-dynamic";
 
@@ -11,7 +12,7 @@ async function authKey(request, admin) {
   if (!key) return { error: NextResponse.json({ error: "Missing API key" }, { status: 401 }) };
   const { data: prof } = await admin.from("qr_profiles").select("*").eq("api_key", key).single();
   if (!prof) return { error: NextResponse.json({ error: "Invalid API key" }, { status: 401 }) };
-  if (prof.plan !== "pro") return { error: NextResponse.json({ error: "API access requires the Pro plan" }, { status: 403 }) };
+  if (!hasFeature(prof, "api")) return { error: NextResponse.json({ error: "API access is not enabled on this account" }, { status: 403 }) };
   return { prof };
 }
 

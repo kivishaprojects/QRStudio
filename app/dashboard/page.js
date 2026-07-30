@@ -6,6 +6,7 @@ import { supabaseBrowser } from "../../lib/supabaseBrowser";
 import { SITE_URL, CASHFREE_MODE } from "../../lib/supabaseConfig";
 import QRCanvas, { drawQR, composeBranded } from "../../components/QRCanvas";
 import { isValidGstin, isValidPincode, stateFromGstin, taxTypeFor, taxBreakup } from "../../lib/gst";
+import { hasFeature } from "../../lib/features";
 
 // Dynamic codes (URL type) encode a redirect through /r/<id> so the destination
 // can be edited after printing and scans are tracked. Other types stay static.
@@ -318,7 +319,8 @@ function Field({ label, children }) {
 }
 
 function ProTools({ supabase, profile, onChange, flash, onUpgrade }) {
-  const isPro = profile?.plan === "pro";
+  const canBulk = hasFeature(profile, "bulk");
+  const canApi = hasFeature(profile, "api");
   const credits = profile?.credits ?? 0;
   const [bulkText, setBulkText] = useState("");
   const [bulkDyn, setBulkDyn] = useState(true);
@@ -369,7 +371,7 @@ function ProTools({ supabase, profile, onChange, flash, onUpgrade }) {
       <div className="card">
         <h3 style={{ fontSize: 17, marginBottom: 4 }}>Bulk generation <span style={{ fontSize: 11, color: "var(--brand)", fontWeight: 700 }}>PRO</span></h3>
         <p style={{ fontSize: 13, color: "var(--soft)", marginBottom: 14 }}>Create many QR codes at once — one per line, as <code>Name, https://link</code> (the name is optional).</p>
-        {!isPro ? <ProGate>Bulk generation is available on the Pro plan.</ProGate> : (
+        {!canBulk ? <ProGate>Bulk generation is available on the Pro plan (or ask an admin to enable it).</ProGate> : (
           <>
             <textarea value={bulkText} onChange={(e) => setBulkText(e.target.value)} rows={7} placeholder={"Menu, https://mysite.com/menu\nOffers, https://mysite.com/offers\nhttps://mysite.com/contact"} style={{ ...inp, resize: "vertical", fontFamily: "monospace", fontSize: 13 }} />
             <label style={{ display: "flex", alignItems: "center", gap: 8, margin: "10px 0", fontSize: 13 }}>
@@ -386,7 +388,7 @@ function ProTools({ supabase, profile, onChange, flash, onUpgrade }) {
       <div className="card">
         <h3 style={{ fontSize: 17, marginBottom: 4 }}>API access <span style={{ fontSize: 11, color: "var(--brand)", fontWeight: 700 }}>PRO</span></h3>
         <p style={{ fontSize: 13, color: "var(--soft)", marginBottom: 14 }}>Create and list QR codes programmatically from your own systems.</p>
-        {!isPro ? <ProGate>API access is available on the Pro plan.</ProGate> : (
+        {!canApi ? <ProGate>API access is available on the Pro plan (or ask an admin to enable it).</ProGate> : (
           <>
             <div style={{ marginBottom: 12 }}>
               <label style={{ display: "block", fontSize: 12.5, color: "var(--soft)", marginBottom: 5 }}>Your API key</label>

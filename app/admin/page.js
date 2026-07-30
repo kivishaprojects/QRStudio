@@ -5,6 +5,7 @@ import Link from "next/link";
 import { supabaseBrowser } from "../../lib/supabaseBrowser";
 import { SITE_URL } from "../../lib/supabaseConfig";
 import { taxBreakup } from "../../lib/gst";
+import { FEATURES, featureState } from "../../lib/features";
 
 export default function Admin() {
   const router = useRouter();
@@ -515,7 +516,7 @@ export default function Admin() {
         )}
       </div>
 
-      {userView && <UserModal u={userView} codes={codes} orders={orders} txns={txns} itemLabel={itemLabel} onClose={() => setUserView(null)} />}
+      {userView && <UserModal u={userView} codes={codes} orders={orders} txns={txns} itemLabel={itemLabel} supabase={supabase} flash={flash} onChange={load} onClose={() => setUserView(null)} />}
       {codeView && <CodeModal c={codeView} email={emailById[codeView.user_id]} onClose={() => setCodeView(null)} />}
     </div>
   );
@@ -728,7 +729,30 @@ function Row({ k, v }) {
   return <div style={{ display: "flex", justifyContent: "space-between", gap: 12, padding: "7px 0", borderBottom: "1px solid var(--line)", fontSize: 13.5 }}><span style={{ color: "var(--soft)" }}>{k}</span><span style={{ textAlign: "right", wordBreak: "break-word" }}>{v}</span></div>;
 }
 
-function UserModal({ u, codes, orders, txns, itemLabel, onClose }) {
+function UserModal({ u, codes, orders, txns, itemLabel, supabase, flash, onChange, onClose }) {
+  const [prof, setProf] = useState(u);
+  const [busy, setBusy] = useState("");
+  useEffect(() => { setProf(u); }, [u]);
+
+  async function refresh() {
+    const { data } = await supabase.from("qr_profiles").select("*").eq("id", u.id).single();
+    if (data) setProf(data);
+    onChange && onChange();
+  }
+  async function setFeature(key, enabled) {
+    setBusy(key);
+    const { error } = await supabase.rpc("qr_admin_set_feature", { p_user: u.id, p_feature: key, p_enabled: enabled });
+    setBusy("");
+    if (error) flash("Error: " + error.message); else { flash("✅ Updated"); refresh(); }
+  }
+  async function setApiKey(generate) {
+    if (!generate && !window.confirm("Revoke this user's API key?")) return;
+    setBusy("api_key");
+    const { error } = await supabase.rpc("qr_admin_set_api_key", { p_user: u.id, p_generate: generate });
+    setBusy("");
+    if (error) flash("Error: " + error.message); else { flash(generate ? "✅ API key generated" : "API key revoked"); refresh(); }
+  }
+
   const uCodes = codes.filter((c) => c.user_id === u.id);
   const uOrders = (orders || []).filter((o) => o.user_id === u.id);
   const uPaid = uOrders.filter((o) => o.status === "paid");
@@ -755,6 +779,34 @@ function UserModal({ u, codes, orders, txns, itemLabel, onClose }) {
       <Row k="Current plan" v={<span className={"pill " + u.plan}>{u.plan}</span>} />
       <Row k="Credits remaining" v={u.credits} />
       <Row k="QR codes created" v={uCodes.length} />
+
+      <h4 style={{ fontSize: 13, textTransform: "uppercase", color: "var(--soft)", margin: "16px 0 4px" }}>Services &amp; entitlements</h4>
+      {FEATURES.map((f) => {
+        const st = featureState(prof, f.key);
+        return (
+          <div key={f.key} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, padding: "9px 0", borderBottom: "1px solid var(--line)" }}>
+            <div>
+              <div style={{ fontSize: 13.5, fontWeight: 600 }}>{f.label} {st.effective ? <span className="pill pro" style={{ marginLeft: 4 }}>on</span> : <span className="pill free" style={{ marginLeft: 4 }}>off</span>}</div>
+              <div style={{ fontSize: 11.5, color: "var(--soft)" }}>{st.overridden ? "Admin override" : `Plan default (${st.planDefault ? "on" : "off"})`}</div>
+            </div>
+            <div style={{ display: "flex", gap: 5 }}>
+              <button className="btn btn-ghost btn-sm" disabled={busy === f.key} onClick={() => setFeature(f.key, true)}>Enable</button>
+              <button className="btn btn-ghost btn-sm" disabled={busy === f.key} onClick={() => setFeature(f.key, false)}>Disable</button>
+              {st.overridden && <button className="btn btn-ghost btn-sm" disabled={busy === f.key} onClick={() => setFeature(f.key, null)}>Reset</button>}
+            </div>
+          </div>
+        );
+      })}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, padding: "10px 0" }}>
+        <div>
+          <div style={{ fontSize: 13.5, fontWeight: 600 }}>API key</div>
+          <div style={{ fontSize: 11.5, color: "var(--soft)", wordBreak: "break-all" }}>{prof.api_key ? prof.api_key.slice(0, 14) + "••••••" : "None issued"}</div>
+        </div>
+        <div style={{ display: "flex", gap: 5 }}>
+          <button className="btn btn-ghost btn-sm" disabled={busy === "api_key"} onClick={() => setApiKey(true)}>{prof.api_key ? "Rotate" : "Generate"}</button>
+          {prof.api_key && <button className="btn btn-ghost btn-sm" style={{ color: "#c0392b" }} disabled={busy === "api_key"} onClick={() => setApiKey(false)}>Revoke</button>}
+        </div>
+      </div>
 
       <h4 style={{ fontSize: 13, textTransform: "uppercase", color: "var(--soft)", margin: "16px 0 4px" }}>Account &amp; payments — ₹{spent.toLocaleString()} paid</h4>
       {uOrders.length === 0 ? <p style={{ color: "var(--soft)", fontSize: 13 }}>No payment orders.</p> : (
