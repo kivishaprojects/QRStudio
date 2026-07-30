@@ -21,8 +21,8 @@ export default function LegalLayout({ title, updated, children }) {
   return (
     <main>
       <header style={{ position: "sticky", top: 0, zIndex: 50, background: "rgba(255,255,255,.82)", backdropFilter: "blur(12px)", borderBottom: "1px solid var(--line)" }}>
-        <div className="container" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", height: 70 }}>
-          <Link href="/"><img src="/logo.png" alt="India QR Code" style={{ height: 42 }} /></Link>
+        <div className="container" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", height: 88 }}>
+          <Link href="/"><img src="/logo.png" alt="India QR Code" style={{ height: 68 }} /></Link>
           <div style={{ display: "flex", gap: 12 }}>
             <Link className="btn btn-ghost" href="/login">Log in</Link>
             <Link className="btn btn-primary" href="/login?mode=signup">Start free →</Link>
@@ -38,6 +38,7 @@ export default function LegalLayout({ title, updated, children }) {
 
       <footer style={{ borderTop: "1px solid var(--line)", padding: "30px 0 40px", color: "var(--soft)", fontSize: 13 }}>
         <div className="container" style={{ textAlign: "center" }}>
+          <img src="/logo.png" alt="India QR Code" style={{ height: 96, marginBottom: 16 }} />
           <div style={{ display: "flex", gap: 18, justifyContent: "center", flexWrap: "wrap", marginBottom: 14 }}>
             {FOOTER_LINKS.map(([href, label]) => (
               <Link key={href} href={href} style={{ color: "var(--soft)" }}>{label}</Link>

@@ -34,7 +34,7 @@ function page(bodyInner) {
 *{box-sizing:border-box}body{font-family:Arial,Helvetica,sans-serif;background:#f6f8fc;color:var(--txt);margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:22px}
 .tri{position:fixed;top:0;left:0;right:0;height:4px;background:linear-gradient(90deg,var(--saffron) 0 33.3%,#fff 33.3% 66.6%,var(--accent) 66.6% 100%)}
 .card{background:#fff;border:1px solid var(--line);border-radius:18px;max-width:400px;width:100%;padding:26px;box-shadow:0 14px 44px rgba(21,42,99,.12)}
-.brand{margin-bottom:18px}.brand img{height:32px}
+.brand{margin-bottom:18px;text-align:center}.brand img{height:60px}
 h1{font-size:20px;margin:0 0 4px}.sub{color:var(--soft);font-size:13.5px;margin:0 0 18px}
 .row{display:flex;justify-content:space-between;gap:10px;padding:10px 0;border-bottom:1px solid var(--line);font-size:14px}
 .row .k{color:var(--soft)}.row .v{font-weight:600;text-align:right;word-break:break-word}

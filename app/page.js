@@ -34,8 +34,8 @@ export default function Home() {
   return (
     <main>
       <header style={{ position: "sticky", top: 0, zIndex: 50, background: "rgba(255,255,255,.9)", backdropFilter: "blur(12px)", borderBottom: "1px solid var(--line)" }}>
-        <div className="container" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", height: 74 }}>
-          <img src="/logo.png" alt="India QR Code" style={{ height: 44, width: "auto" }} />
+        <div className="container" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", height: 92 }}>
+          <img src="/logo.png" alt="India QR Code" style={{ height: 72, width: "auto" }} />
           <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
             <Link href="/scan" style={{ fontSize: 14, color: "var(--soft)", fontWeight: 500 }}>Scan</Link>
             <Link className="btn btn-ghost" href="/login">Log in</Link>
@@ -161,8 +161,8 @@ export default function Home() {
         </div>
       </section>
 
-      <footer style={{ borderTop: "1px solid var(--line)", padding: "36px 0 44px", textAlign: "center", color: "var(--soft)", fontSize: 13 }}>
-        <img src="/logo.png" alt="India QR Code" style={{ height: 40, margin: "0 auto 16px" }} />
+      <footer style={{ borderTop: "1px solid var(--line)", padding: "44px 0 48px", textAlign: "center", color: "var(--soft)", fontSize: 13 }}>
+        <img src="/logo.png" alt="India QR Code" style={{ height: 120, margin: "0 auto 18px" }} />
         <div style={{ display: "flex", gap: 18, justifyContent: "center", flexWrap: "wrap", marginBottom: 14 }}>
           <Link href="/pricing" style={{ color: "var(--soft)" }}>Pricing</Link>
           <Link href="/contact" style={{ color: "var(--soft)" }}>Contact Us</Link>

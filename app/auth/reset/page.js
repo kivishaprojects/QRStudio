@@ -42,8 +42,8 @@ export default function ResetPassword() {
   return (
     <main style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
       <div className="card" style={{ width: "100%", maxWidth: 400 }}>
-        <div style={{ marginBottom: 10 }}>
-          <img src="/logo.png" alt="India QR Code" style={{ height: 44 }} />
+        <div style={{ textAlign: "center", marginBottom: 12 }}>
+          <img src="/logo.png" alt="India QR Code" style={{ height: 84 }} />
         </div>
         <h2 style={{ fontSize: 22, margin: "12px 0 4px" }}>Set a new password</h2>
         {!ready ? (

@@ -243,8 +243,8 @@ export default function Admin() {
   return (
     <div style={{ display: "grid", gridTemplateColumns: "230px 1fr", minHeight: "100vh" }}>
       <aside style={{ background: "var(--bg2)", borderRight: "1px solid var(--line)", padding: "20px 15px", position: "sticky", top: 0, height: "100vh" }}>
-        <div style={{ padding: "6px 8px 16px" }}>
-          <img src="/logo.png" alt="India QR Code" style={{ height: 32 }} />
+        <div style={{ padding: "6px 8px 16px", textAlign: "center" }}>
+          <img src="/logo.png" alt="India QR Code" style={{ height: 66 }} />
           <div style={{ fontSize: 12, color: "var(--soft)", fontWeight: 700, letterSpacing: ".12em", marginTop: 6 }}>ADMIN PANEL</div>
         </div>
         {[["overview", "▨ Overview"], ["users", "👥 Users"], ["revenue", "₹ Revenue"], ["bills", "🧾 Bills Generated"], ["codes", "▤ QR Codes"], ["coupons", "🎟 Coupons"], ["support", "🛟 Support"], ["audit", "📜 Audit Log"], ["backup", "💾 Backup"], ["settings", "⚙ Settings"]].map(([id, l]) => {
@@ -535,6 +535,11 @@ export default function Admin() {
             <TwoFAEnroll supabase={supabase} flash={flash} />
           </div>
         )}
+
+        <div style={{ marginTop: 48, paddingTop: 24, borderTop: "1px solid var(--line)", textAlign: "center" }}>
+          <img src="/logo.png" alt="India QR Code" style={{ height: 72, marginBottom: 8 }} />
+          <div style={{ fontSize: 12, color: "var(--soft)" }}>© 2026 India QR Code · Admin · Made in India 🇮🇳</div>
+        </div>
       </div>
 
       {userView && <UserModal u={userView} codes={codes} orders={orders} txns={txns} itemLabel={itemLabel} supabase={supabase} flash={flash} onChange={load} onClose={() => setUserView(null)} />}

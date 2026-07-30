@@ -97,8 +97,8 @@ export default function Dashboard() {
   return (
     <div style={{ display: "grid", gridTemplateColumns: "240px 1fr", minHeight: "100vh" }}>
       <aside style={{ background: "var(--bg2)", borderRight: "1px solid var(--line)", padding: "20px 15px", position: "sticky", top: 0, height: "100vh", display: "flex", flexDirection: "column" }}>
-        <div style={{ padding: "6px 8px 18px" }}>
-          <img src="/logo.png" alt="India QR Code" style={{ height: 36 }} />
+        <div style={{ padding: "6px 8px 18px", textAlign: "center" }}>
+          <img src="/logo.png" alt="India QR Code" style={{ height: 72 }} />
         </div>
         {[["overview", "▨ Dashboard"], ["create", "＋ Create QR"], ["codes", "▤ My QR Codes"], ["billing", "💳 Billing & Plan"], ["analytics", "📈 Analytics"], ["protools", "🚀 Bulk & API"], ["support", "🛟 Support"], ["account", "👤 My Account"]].map(([id, label]) => (
           <div key={id} onClick={() => setTab(id)} style={navStyle(tab === id)}>{label}</div>
@@ -130,6 +130,11 @@ export default function Dashboard() {
           {tab === "protools" && <ProTools supabase={supabase} profile={profile} onChange={load} flash={flash} onUpgrade={() => setTab("billing")} />}
           {tab === "support" && <Support supabase={supabase} tickets={tickets} onChange={load} flash={flash} />}
           {tab === "account" && <Account supabase={supabase} profile={profile} plans={plans} orders={orders} settings={settings} onChange={load} flash={flash} />}
+
+          <div style={{ marginTop: 48, paddingTop: 24, borderTop: "1px solid var(--line)", textAlign: "center" }}>
+            <img src="/logo.png" alt="India QR Code" style={{ height: 84, marginBottom: 10 }} />
+            <div style={{ fontSize: 12, color: "var(--soft)" }}>© 2026 India QR Code · Developed By : Jupiter Technologies · Made in India 🇮🇳</div>
+          </div>
         </div>
       </div>
       <div className={"toast" + (toast ? " show" : "")}>{toast}</div>
