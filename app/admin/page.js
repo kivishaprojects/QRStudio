@@ -185,7 +185,7 @@ export default function Admin() {
     const ADDR = s.biz_address || "";
     const GSTIN = s.gstin ? "GSTIN: " + s.gstin : "GSTIN: __________";
     const LOGO = s.logo_url ? '<img src="' + s.logo_url + '" alt="logo" style="max-height:56px;max-width:180px;margin-bottom:8px"/><br/>' : "";
-    const party = (nameById[o.user_id] || emailById[o.user_id] || "Customer") +
+    const party = (o.buyer_name ? '<b>' + o.buyer_name + '</b><br/>' : '') + (nameById[o.user_id] || emailById[o.user_id] || "Customer") +
       (o.buyer_gstin ? '<div class="muted">GSTIN: ' + o.buyer_gstin + '</div>' : '') +
       (o.buyer_city || o.buyer_state ? '<div class="muted">' + [o.buyer_city, o.buyer_state, o.buyer_pincode].filter(Boolean).join(", ") + '</div>' : '') +
       (o.buyer_state ? '<div class="muted">Place of supply: ' + o.buyer_state + '</div>' : '');

@@ -38,7 +38,7 @@ export async function POST(request) {
   // ---- Mandatory GST declaration (before a payment link is issued) ----
   const gst = body.gst || {};
   const gstApplicable = gst.applicable === true || gst.applicable === "yes";
-  let gstFields = { gst_applicable: false, buyer_gstin: null, buyer_state: null, buyer_city: null, buyer_pincode: null, tax_type: "cgst_sgst" };
+  let gstFields = { gst_applicable: false, buyer_gstin: null, buyer_name: null, buyer_state: null, buyer_city: null, buyer_pincode: null, tax_type: "cgst_sgst" };
   if (gst.applicable === undefined || gst.applicable === null || gst.applicable === "") {
     return NextResponse.json({ error: "Please declare whether GST is applicable before proceeding." }, { status: 400 });
   }
@@ -54,7 +54,8 @@ export async function POST(request) {
     // seller state comes from the business GSTIN in settings (defaults to Gujarat)
     const { data: st } = await admin.from("qs_settings").select("gstin").eq("id", 1).single();
     const taxType = taxTypeFor(gstin, st && st.gstin);
-    gstFields = { gst_applicable: true, buyer_gstin: gstin, buyer_state: state, buyer_city: city, buyer_pincode: pincode, tax_type: taxType };
+    const name = String(gst.name || "").trim().slice(0, 200) || null;
+    gstFields = { gst_applicable: true, buyer_gstin: gstin, buyer_name: name, buyer_state: state, buyer_city: city, buyer_pincode: pincode, tax_type: taxType };
   }
 
   const orderId = "qrs" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);

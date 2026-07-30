@@ -473,6 +473,8 @@ function Billing({ supabase, profile, plans, txns, orders, settings, onChange, f
   const [gstin, setGstin] = useState("");
   const [gstCity, setGstCity] = useState("");
   const [gstPin, setGstPin] = useState("");
+  const [gstLegal, setGstLegal] = useState("");
+  const [gstFetching, setGstFetching] = useState(false);
   const rate = plans.find((p) => p.id === profile?.plan)?.addon_rate || 100;
   useEffect(() => { if (profile && profile.phone) setPhone(profile.phone); }, [profile]);
   const gstState = gstOn === "yes" && isValidGstin(gstin) ? stateFromGstin(gstin) : "";
@@ -534,6 +536,24 @@ function Billing({ supabase, profile, plans, txns, orders, settings, onChange, f
   function buyAddons() {
     if (qty >= 1) setPending({ kind: "addon", qty: Number(qty), amount: rate * Number(qty), label: qty + " addon credits @ ₹" + rate });
   }
+  async function fetchGst() {
+    if (!isValidGstin(gstin)) { flash("Enter a valid 15-character GSTIN first"); return; }
+    setGstFetching(true);
+    try {
+      const res = await fetch("/api/gst/lookup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ gstin: gstin.toUpperCase().trim() }) });
+      const j = await res.json();
+      if (j.configured === false) { flash("Auto-fetch isn't switched on — please type your city & pincode."); }
+      else if (j.valid === false) { flash("This GSTIN looks invalid or inactive (" + (j.status || "") + ")."); }
+      else if (j.error) { flash("Lookup failed: " + j.error); }
+      else {
+        if (j.city) setGstCity(j.city);
+        if (j.pincode) setGstPin(j.pincode);
+        if (j.legalName) setGstLegal(j.legalName);
+        flash("✅ Fetched " + (j.legalName || j.tradeName || j.state || "details"));
+      }
+    } catch (e) { flash("Error: " + e.message); }
+    setGstFetching(false);
+  }
   function confirmPay() {
     const digits = String(phone).replace(/[^0-9]/g, "");
     if (digits.length < 10) { flash("Enter a valid 10-digit phone number"); return; }
@@ -544,7 +564,7 @@ function Billing({ supabase, profile, plans, txns, orders, settings, onChange, f
       if (!isValidPincode(gstPin)) { flash("Enter a valid 6-digit pincode"); return; }
     }
     const gst = gstOn === "yes"
-      ? { applicable: "yes", gstin: gstin.toUpperCase().trim(), city: gstCity.trim(), pincode: gstPin.trim() }
+      ? { applicable: "yes", gstin: gstin.toUpperCase().trim(), city: gstCity.trim(), pincode: gstPin.trim(), name: gstLegal || "" }
       : { applicable: "no" };
     startCheckout({ kind: pending.kind, planId: pending.planId, qty: pending.qty, phone: digits, gst });
   }
@@ -569,7 +589,7 @@ function Billing({ supabase, profile, plans, txns, orders, settings, onChange, f
       ? '<div><span>IGST @ ' + RATE + '%</span><span>₹' + b.igstAmt.toLocaleString() + '</span></div>'
       : '<div><span>CGST @ ' + (RATE / 2) + '%</span><span>₹' + b.cgst.toLocaleString() + '</span></div>' +
         '<div><span>SGST @ ' + (RATE / 2) + '%</span><span>₹' + b.sgst.toLocaleString() + '</span></div>';
-    const billedTo = (profile && profile.email ? profile.email : "Customer") +
+    const billedTo = (o.buyer_name ? '<b>' + o.buyer_name + '</b><br/>' : '') + (profile && profile.email ? profile.email : "Customer") +
       (o.buyer_gstin ? '<div class="muted">GSTIN: ' + o.buyer_gstin + '</div>' : '') +
       (o.buyer_city || o.buyer_state ? '<div class="muted">' + [o.buyer_city, o.buyer_state, o.buyer_pincode].filter(Boolean).join(", ") + '</div>' : '') +
       (o.buyer_state ? '<div class="muted">Place of supply: ' + o.buyer_state + '</div>' : '');
@@ -689,9 +709,13 @@ function Billing({ supabase, profile, plans, txns, orders, settings, onChange, f
               <>
                 <div className="field">
                   <label>GSTIN <span style={{ color: "var(--gold)" }}>*</span></label>
-                  <input value={gstin} onChange={(e) => setGstin(e.target.value.toUpperCase())} placeholder="24ABCDE1234F1Z5" maxLength={15} style={{ textTransform: "uppercase" }} />
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <input value={gstin} onChange={(e) => { setGstin(e.target.value.toUpperCase()); setGstLegal(""); }} placeholder="24ABCDE1234F1Z5" maxLength={15} style={{ textTransform: "uppercase", flex: 1 }} />
+                    <button type="button" className="btn btn-ghost" style={{ whiteSpace: "nowrap", fontSize: 13 }} onClick={fetchGst} disabled={!isValidGstin(gstin) || gstFetching}>{gstFetching ? "Fetching…" : "🔍 Auto-fetch"}</button>
+                  </div>
                   {gstin && !isValidGstin(gstin) && <div style={{ fontSize: 11.5, color: "#c0392b", marginTop: 4 }}>That doesn't look like a valid 15-character GSTIN.</div>}
                   {gstState && <div style={{ fontSize: 11.5, color: "var(--accent)", marginTop: 4 }}>State auto-detected: <b>{gstState}</b></div>}
+                  {gstLegal && <div style={{ fontSize: 11.5, color: "var(--soft)", marginTop: 3 }}>Registered as: <b style={{ color: "var(--txt)" }}>{gstLegal}</b></div>}
                 </div>
                 <div style={{ display: "flex", gap: 10 }}>
                   <div className="field" style={{ flex: 1 }}>
